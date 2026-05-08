@@ -11,6 +11,7 @@ CompileFlags:
     - -Iinfrastructure/memory-pool
     - -Iinfrastructure/market-data-push-system
     - -Iintegration/exchange-pipeline
+    - -Iregex
     - -Itooling/observability-stack
     - -Itooling/performance-toolkit
 Diagnostics:
@@ -69,6 +70,12 @@ If:
   PathMatch: ^integration/exchange-pipeline/.*
 CompileFlags:
   CompilationDatabase: build/integration/exchange-pipeline/debug
+
+---
+If:
+  PathMatch: ^regex/.*
+CompileFlags:
+  CompilationDatabase: regex/build-local
 
 ---
 If:

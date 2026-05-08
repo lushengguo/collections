@@ -1,3 +1,6 @@
 [submodule "reactor"]
 	path = reactor
 	url = https://github.com/lushengguo/reactor.git
+[submodule "regex"]
+	path = regex
+	url = https://github.com/lushengguo/regex.git
