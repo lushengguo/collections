@@ -37,66 +37,82 @@ AccountClearingSystem::~AccountClearingSystem()
 
 void AccountClearingSystem::upsert_account(std::string account_id, AccountSnapshot snapshot)
 {
-    accounts_[std::move(account_id)] = snapshot;
+    accounts_.insert_or_assign(std::move(account_id), snapshot);
 }
 
-bool AccountClearingSystem::freeze_quote(std::string_view account_id, std::string hold_id, double amount,
-                                         std::int64_t timestamp_ms)
+ClearingOperationResult AccountClearingSystem::freeze_quote(std::string_view account_id, std::string hold_id,
+                                                            double amount, std::int64_t timestamp_ms)
 {
     auto account_it = accounts_.find(std::string(account_id));
-    if (account_it == accounts_.end() || amount <= 0.0 || holds_.contains(hold_id))
+    if (account_it == accounts_.end())
     {
-        return false;
+        return {.status = ClearingStatus::kAccountNotFound};
+    }
+    if (amount <= 0.0)
+    {
+        return {.status = ClearingStatus::kInvalidInput};
+    }
+    if (holds_.contains(hold_id))
+    {
+        return {.status = ClearingStatus::kHoldAlreadyExists};
     }
 
     auto &snapshot = account_it->second;
     if (snapshot.available_quote < amount)
     {
-        return false;
+        return {.status = ClearingStatus::kInsufficientQuoteBalance};
     }
 
     snapshot.available_quote -= amount;
     snapshot.frozen_quote += amount;
     holds_[hold_id] = HoldRecord{.account_id = std::string(account_id), .asset = HoldAsset::kQuote, .amount = amount};
     append_journal(account_id, hold_id, "freeze_quote", -amount, amount, 0.0, 0.0, 0.0, 0.0, timestamp_ms);
-    return true;
+    return {};
 }
 
-bool AccountClearingSystem::freeze_base(std::string_view account_id, std::string hold_id, double amount,
-                                        std::int64_t timestamp_ms)
+ClearingOperationResult AccountClearingSystem::freeze_base(std::string_view account_id, std::string hold_id,
+                                                           double amount, std::int64_t timestamp_ms)
 {
     auto account_it = accounts_.find(std::string(account_id));
-    if (account_it == accounts_.end() || amount <= 0.0 || holds_.contains(hold_id))
+    if (account_it == accounts_.end())
     {
-        return false;
+        return {.status = ClearingStatus::kAccountNotFound};
+    }
+    if (amount <= 0.0)
+    {
+        return {.status = ClearingStatus::kInvalidInput};
+    }
+    if (holds_.contains(hold_id))
+    {
+        return {.status = ClearingStatus::kHoldAlreadyExists};
     }
 
     auto &snapshot = account_it->second;
     if (snapshot.available_base < amount)
     {
-        return false;
+        return {.status = ClearingStatus::kInsufficientBasePosition};
     }
 
     snapshot.available_base -= amount;
     snapshot.frozen_base += amount;
     holds_[hold_id] = HoldRecord{.account_id = std::string(account_id), .asset = HoldAsset::kBase, .amount = amount};
     append_journal(account_id, hold_id, "freeze_base", 0.0, 0.0, -amount, amount, 0.0, 0.0, timestamp_ms);
-    return true;
+    return {};
 }
 
-bool AccountClearingSystem::release_hold(std::string_view hold_id, std::int64_t timestamp_ms)
+ClearingOperationResult AccountClearingSystem::release_hold(std::string_view hold_id, std::int64_t timestamp_ms)
 {
     auto hold_it = holds_.find(std::string(hold_id));
     if (hold_it == holds_.end())
     {
-        return false;
+        return {.status = ClearingStatus::kHoldNotFound};
     }
 
     const auto hold = hold_it->second;
     auto account_it = accounts_.find(hold.account_id);
     if (account_it == accounts_.end())
     {
-        return false;
+        return {.status = ClearingStatus::kInvariantViolation};
     }
 
     auto &snapshot = account_it->second;
@@ -116,14 +132,14 @@ bool AccountClearingSystem::release_hold(std::string_view hold_id, std::int64_t 
     }
 
     holds_.erase(hold_it);
-    return true;
+    return {};
 }
 
 SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill, const FeeSchedule &fee_schedule)
 {
     if (settled_trade_ids_.contains(fill.trade_id))
     {
-        return SettlementResult{.success = true, .duplicate = true};
+        return SettlementResult{.status = ClearingStatus::kDuplicate};
     }
 
     auto buyer_it = accounts_.find(fill.buyer_account_id);
@@ -131,7 +147,9 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
     if (buyer_it == accounts_.end() || seller_it == accounts_.end() || fill.price <= 0.0 || fill.quantity <= 0.0 ||
         fill.timestamp_ms <= 0)
     {
-        return SettlementResult{.success = false, .failure_reason = "invalid_trade_fill"};
+        return SettlementResult{.status = buyer_it == accounts_.end() || seller_it == accounts_.end()
+                                              ? ClearingStatus::kAccountNotFound
+                                              : ClearingStatus::kInvalidInput};
     }
 
     const auto notional = fill.price * fill.quantity;
@@ -146,11 +164,11 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
     auto &seller = seller_it->second;
     if (buyer.frozen_quote < buyer_consumed_quote)
     {
-        return SettlementResult{.success = false, .failure_reason = "buyer_frozen_quote_insufficient"};
+        return SettlementResult{.status = ClearingStatus::kBuyerFrozenQuoteInsufficient};
     }
     if (seller.frozen_base < seller_consumed_base)
     {
-        return SettlementResult{.success = false, .failure_reason = "seller_frozen_base_insufficient"};
+        return SettlementResult{.status = ClearingStatus::kSellerFrozenBaseInsufficient};
     }
 
     if (!fill.buyer_hold_id.empty())
@@ -159,7 +177,7 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
         if (buyer_hold_it == holds_.end() || buyer_hold_it->second.account_id != fill.buyer_account_id ||
             buyer_hold_it->second.asset != HoldAsset::kQuote || buyer_hold_it->second.amount < buyer_consumed_quote)
         {
-            return SettlementResult{.success = false, .failure_reason = "buyer_hold_insufficient"};
+            return SettlementResult{.status = ClearingStatus::kBuyerHoldInsufficient};
         }
     }
     if (!fill.seller_hold_id.empty())
@@ -168,7 +186,7 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
         if (seller_hold_it == holds_.end() || seller_hold_it->second.account_id != fill.seller_account_id ||
             seller_hold_it->second.asset != HoldAsset::kBase || seller_hold_it->second.amount < seller_consumed_base)
         {
-            return SettlementResult{.success = false, .failure_reason = "seller_hold_insufficient"};
+            return SettlementResult{.status = ClearingStatus::kSellerHoldInsufficient};
         }
     }
 
@@ -217,12 +235,10 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
         .payload = fill.symbol + ":" + fill.buyer_account_id + ":" + fill.seller_account_id,
         .state = distributed_consistency::OutboxState::kPending,
     });
-    settled_trade_ids_[fill.trade_id] = true;
+    settled_trade_ids_.insert(fill.trade_id);
 
     return SettlementResult{
-        .success = true,
-        .duplicate = false,
-        .failure_reason = "",
+        .status = ClearingStatus::kApplied,
         .notional = notional,
         .buyer_fee = buyer_fee,
         .seller_fee = seller_fee,
@@ -284,9 +300,13 @@ std::vector<distributed_consistency::OutboxMessage> AccountClearingSystem::pendi
     return outbox_.pending_batch(max_items);
 }
 
-bool AccountClearingSystem::mark_outbox_dispatched(std::string_view message_id)
+ClearingOperationResult AccountClearingSystem::mark_outbox_dispatched(std::string_view message_id)
 {
-    return outbox_.mark_dispatched(std::string(message_id));
+    if (!outbox_.mark_dispatched(std::string(message_id)))
+    {
+        return {.status = ClearingStatus::kOutboxMessageNotFound};
+    }
+    return {};
 }
 
 void AccountClearingSystem::append_journal(std::string_view account_id, std::string_view event_id,
@@ -323,6 +343,43 @@ ModuleSummary module_summary()
 std::string project_name()
 {
     return "account_clearing_system";
+}
+
+std::string_view status_message(ClearingStatus status) noexcept
+{
+    switch (status)
+    {
+    case ClearingStatus::kApplied:
+        return "applied";
+    case ClearingStatus::kDuplicate:
+        return "duplicate";
+    case ClearingStatus::kInvalidInput:
+        return "invalid_input";
+    case ClearingStatus::kAccountNotFound:
+        return "account_not_found";
+    case ClearingStatus::kHoldAlreadyExists:
+        return "hold_already_exists";
+    case ClearingStatus::kHoldNotFound:
+        return "hold_not_found";
+    case ClearingStatus::kInsufficientQuoteBalance:
+        return "insufficient_quote_balance";
+    case ClearingStatus::kInsufficientBasePosition:
+        return "insufficient_base_position";
+    case ClearingStatus::kBuyerFrozenQuoteInsufficient:
+        return "buyer_frozen_quote_insufficient";
+    case ClearingStatus::kSellerFrozenBaseInsufficient:
+        return "seller_frozen_base_insufficient";
+    case ClearingStatus::kBuyerHoldInsufficient:
+        return "buyer_hold_insufficient";
+    case ClearingStatus::kSellerHoldInsufficient:
+        return "seller_hold_insufficient";
+    case ClearingStatus::kOutboxMessageNotFound:
+        return "outbox_message_not_found";
+    case ClearingStatus::kInvariantViolation:
+        return "invariant_violation";
+    }
+
+    return "unknown";
 }
 
 } // namespace account_clearing_system

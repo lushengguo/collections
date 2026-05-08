@@ -1,9 +1,12 @@
 #include "exchange_pipeline.hpp"
 
+#include <cerrno>
+#include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <sstream>
-#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace exchange_pipeline
@@ -41,7 +44,7 @@ std::unordered_map<std::string, std::string> parse_key_values(std::string_view p
     return values;
 }
 
-orderbook_matching_engine::Side parse_matching_side(const std::string &value)
+std::optional<orderbook_matching_engine::Side> parse_matching_side(std::string_view value)
 {
     if (value == "buy")
     {
@@ -51,10 +54,10 @@ orderbook_matching_engine::Side parse_matching_side(const std::string &value)
     {
         return orderbook_matching_engine::Side::kSell;
     }
-    throw std::invalid_argument("unsupported side");
+    return std::nullopt;
 }
 
-pre_trade_risk_engine::Side parse_risk_side(const std::string &value)
+std::optional<pre_trade_risk_engine::Side> parse_risk_side(std::string_view value)
 {
     if (value == "buy")
     {
@@ -64,10 +67,10 @@ pre_trade_risk_engine::Side parse_risk_side(const std::string &value)
     {
         return pre_trade_risk_engine::Side::kSell;
     }
-    throw std::invalid_argument("unsupported side");
+    return std::nullopt;
 }
 
-orderbook_matching_engine::OrderType parse_matching_type(const std::string &value)
+std::optional<orderbook_matching_engine::OrderType> parse_matching_type(std::string_view value)
 {
     if (value == "limit")
     {
@@ -77,10 +80,10 @@ orderbook_matching_engine::OrderType parse_matching_type(const std::string &valu
     {
         return orderbook_matching_engine::OrderType::kMarket;
     }
-    throw std::invalid_argument("unsupported order type");
+    return std::nullopt;
 }
 
-pre_trade_risk_engine::OrderType parse_risk_type(const std::string &value)
+std::optional<pre_trade_risk_engine::OrderType> parse_risk_type(std::string_view value)
 {
     if (value == "limit")
     {
@@ -90,10 +93,10 @@ pre_trade_risk_engine::OrderType parse_risk_type(const std::string &value)
     {
         return pre_trade_risk_engine::OrderType::kMarket;
     }
-    throw std::invalid_argument("unsupported order type");
+    return std::nullopt;
 }
 
-orderbook_matching_engine::TimeInForce parse_tif(const std::string &value)
+std::optional<orderbook_matching_engine::TimeInForce> parse_tif(std::string_view value)
 {
     if (value == "gtc")
     {
@@ -111,7 +114,46 @@ orderbook_matching_engine::TimeInForce parse_tif(const std::string &value)
     {
         return orderbook_matching_engine::TimeInForce::kGtx;
     }
-    throw std::invalid_argument("unsupported time in force");
+    return std::nullopt;
+}
+
+std::optional<double> parse_decimal(std::string_view value)
+{
+    if (value.empty())
+    {
+        return std::nullopt;
+    }
+
+    const std::string text(value);
+    char *end = nullptr;
+    errno = 0;
+    const double parsed = std::strtod(text.c_str(), &end);
+    if (errno == ERANGE || end != text.c_str() + text.size() || !std::isfinite(parsed))
+    {
+        return std::nullopt;
+    }
+
+    return parsed;
+}
+
+pre_trade_risk_engine::RejectReason to_risk_reject_reason(account_clearing_system::ClearingStatus status,
+                                                          orderbook_matching_engine::Side side)
+{
+    switch (status)
+    {
+    case account_clearing_system::ClearingStatus::kInsufficientQuoteBalance:
+        return pre_trade_risk_engine::RejectReason::kInsufficientBalance;
+    case account_clearing_system::ClearingStatus::kInsufficientBasePosition:
+        return pre_trade_risk_engine::RejectReason::kInsufficientPosition;
+    case account_clearing_system::ClearingStatus::kAccountNotFound:
+    case account_clearing_system::ClearingStatus::kInvalidInput:
+    case account_clearing_system::ClearingStatus::kHoldAlreadyExists:
+        return pre_trade_risk_engine::RejectReason::kInvalidRequest;
+    default:
+        return side == orderbook_matching_engine::Side::kBuy
+                   ? pre_trade_risk_engine::RejectReason::kInsufficientBalance
+                   : pre_trade_risk_engine::RejectReason::kInsufficientPosition;
+    }
 }
 
 } // namespace
@@ -137,14 +179,14 @@ void ExchangePipeline::configure_market(double best_bid, double best_ask,
     risk_.update_top_of_book(symbol_, best_bid_, best_ask_);
 }
 
-void ExchangePipeline::register_user(std::string api_key, std::string secret, std::string user_id,
-                                     account_clearing_system::AccountSnapshot account_snapshot,
+void ExchangePipeline::register_user(std::string_view api_key, std::string_view secret, std::string_view user_id,
+                                     const account_clearing_system::AccountSnapshot &account_snapshot,
                                      std::size_t max_requests, std::int64_t window_ms)
 {
-    gateway_.register_credential(std::move(api_key), std::move(secret), user_id);
-    gateway_.set_user_rate_limit(user_id, max_requests, window_ms);
-    clearing_.upsert_account(user_id, account_snapshot);
-    known_users_.insert(user_id);
+    gateway_.register_credential(std::string(api_key), std::string(secret), std::string(user_id));
+    gateway_.set_user_rate_limit(std::string(user_id), max_requests, window_ms);
+    clearing_.upsert_account(std::string(user_id), account_snapshot);
+    known_users_.emplace(user_id);
     sync_account_state(user_id);
 }
 
@@ -155,49 +197,54 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
     workflow.route_events = gateway_.replay_route_events(0);
     if (!workflow.route_result.accepted)
     {
+        workflow.status = WorkflowStatus::kRouteRejected;
         return workflow;
     }
 
     const auto forwarded = gateway_.poll_forwarded_request();
     if (!forwarded.has_value())
     {
+        workflow.status = WorkflowStatus::kInvariantViolation;
+        workflow.error_detail = "gateway_forwarded_request_missing";
         return workflow;
     }
 
     const auto parsed = parse_order(*forwarded);
     if (!parsed.has_value())
     {
-        workflow.risk_decision = risk_.evaluate({
+        workflow.status = WorkflowStatus::kParseRejected;
+        workflow.risk_decision = pre_trade_risk_engine::RiskDecision{
+            .accepted = false,
+            .reject_reason = pre_trade_risk_engine::RejectReason::kInvalidRequest,
+            .rule_name = "request_parse",
             .order_id = "",
             .user_id = forwarded->user_id,
             .symbol = symbol_,
-            .source_ip = "",
-            .side = pre_trade_risk_engine::Side::kBuy,
-            .type = pre_trade_risk_engine::OrderType::kLimit,
-            .price = 0.0,
-            .quantity = 0.0,
+            .reference_price = 0.0,
+            .estimated_notional = 0.0,
             .timestamp_ms = forwarded->timestamp_ms,
-        });
+        };
         return workflow;
     }
 
     workflow.risk_decision = risk_.evaluate(to_risk_request(*parsed));
     if (!workflow.risk_decision.accepted)
     {
+        workflow.status = WorkflowStatus::kRiskRejected;
         return workflow;
     }
 
     const auto hold_id = hold_id_for(parsed->order_id);
     const auto reserved = reserve_amount(*parsed);
-    const bool hold_created = parsed->matching_side == orderbook_matching_engine::Side::kBuy
-                                  ? clearing_.freeze_quote(parsed->user_id, hold_id, reserved, parsed->timestamp_ms)
-                                  : clearing_.freeze_base(parsed->user_id, hold_id, reserved, parsed->timestamp_ms);
-    if (!hold_created)
+    const auto hold_result = parsed->matching_side == orderbook_matching_engine::Side::kBuy
+                                 ? clearing_.freeze_quote(parsed->user_id, hold_id, reserved, parsed->timestamp_ms)
+                                 : clearing_.freeze_base(parsed->user_id, hold_id, reserved, parsed->timestamp_ms);
+    if (!hold_result.ok())
     {
+        workflow.status = WorkflowStatus::kClearingRejected;
+        workflow.error_detail = std::string(account_clearing_system::status_message(hold_result.status));
         workflow.risk_decision.accepted = false;
-        workflow.risk_decision.reject_reason = parsed->matching_side == orderbook_matching_engine::Side::kBuy
-                                                   ? pre_trade_risk_engine::RejectReason::kInsufficientBalance
-                                                   : pre_trade_risk_engine::RejectReason::kInsufficientPosition;
+        workflow.risk_decision.reject_reason = to_risk_reject_reason(hold_result.status, parsed->matching_side);
         workflow.risk_decision.rule_name = "clearing_hold_reservation";
         return workflow;
     }
@@ -215,7 +262,14 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
 
     if (!workflow.match_result.accepted && workflow.match_result.trades.empty())
     {
-        release_residual_hold(hold_id, parsed->timestamp_ms + 1);
+        workflow.status = WorkflowStatus::kMatchingRejected;
+        const auto release_result = release_residual_hold(hold_id, parsed->timestamp_ms + 1);
+        if (!release_result.ok())
+        {
+            workflow.status = WorkflowStatus::kInvariantViolation;
+            workflow.error_detail = std::string(account_clearing_system::status_message(release_result.status));
+            return workflow;
+        }
         order_registry_.erase(parsed->order_id);
         sync_account_state(parsed->user_id);
         sync_resting_orders();
@@ -230,7 +284,10 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
         const auto taker_it = order_registry_.find(trade.taker_order_id);
         if (maker_it == order_registry_.end() || taker_it == order_registry_.end())
         {
-            throw std::runtime_error("missing order ownership for matched trade");
+            workflow.status = WorkflowStatus::kInvariantViolation;
+            workflow.error_detail = "missing_order_ownership_for_matched_trade";
+            workflow.accepted = false;
+            return workflow;
         }
 
         const auto &maker = maker_it->second;
@@ -241,7 +298,7 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
         const std::string &buyer_hold_id = taker_is_buy ? taker.hold_id : maker.hold_id;
         const std::string &seller_hold_id = taker_is_buy ? maker.hold_id : taker.hold_id;
 
-        workflow.settlements.push_back(clearing_.settle_spot_trade(
+        const auto settlement = clearing_.settle_spot_trade(
             {
                 .trade_id = trade.maker_order_id + "->" + trade.taker_order_id,
                 .symbol = symbol_,
@@ -254,7 +311,15 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
                 .buyer_is_taker = taker_is_buy,
                 .timestamp_ms = parsed->timestamp_ms,
             },
-            fee_schedule_));
+            fee_schedule_);
+        workflow.settlements.push_back(settlement);
+        if (!settlement.ok())
+        {
+            workflow.status = WorkflowStatus::kSettlementRejected;
+            workflow.error_detail = std::string(account_clearing_system::status_message(settlement.status));
+            workflow.accepted = false;
+            return workflow;
+        }
         sync_account_state(buyer_account_id);
         sync_account_state(seller_account_id);
     }
@@ -287,7 +352,15 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
             const auto registry_it = order_registry_.find(order_id);
             if (registry_it != order_registry_.end())
             {
-                release_residual_hold(registry_it->second.hold_id, parsed->timestamp_ms + 2);
+                const auto release_result =
+                    release_residual_hold(registry_it->second.hold_id, parsed->timestamp_ms + 2);
+                if (!release_result.ok())
+                {
+                    workflow.status = WorkflowStatus::kInvariantViolation;
+                    workflow.error_detail = std::string(account_clearing_system::status_message(release_result.status));
+                    workflow.accepted = false;
+                    return workflow;
+                }
                 sync_account_state(registry_it->second.user_id);
                 order_registry_.erase(registry_it);
             }
@@ -296,6 +369,7 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
 
     sync_resting_orders();
     refresh_market_reference();
+    workflow.status = WorkflowStatus::kCompleted;
     workflow.trade_events = matching_.replay_market_data("trades." + symbol_, 0);
     workflow.depth_events = matching_.replay_market_data("depth." + symbol_, 0);
     workflow.outbox_messages = clearing_.pending_outbox(32);
@@ -320,7 +394,7 @@ std::vector<pre_trade_risk_engine::RiskDecision> ExchangePipeline::audit_log() c
 std::vector<market_data_push_system::BroadcastMessage> ExchangePipeline::replay_market_data(std::string_view topic,
                                                                                             std::uint64_t after) const
 {
-    return matching_.replay_market_data(std::string(topic), after);
+    return matching_.replay_market_data(topic, after);
 }
 
 std::vector<market_data_push_system::BroadcastMessage> ExchangePipeline::replay_route_events(std::uint64_t after) const
@@ -331,37 +405,47 @@ std::vector<market_data_push_system::BroadcastMessage> ExchangePipeline::replay_
 std::optional<ExchangePipeline::ParsedOrder> ExchangePipeline::parse_order(
     const unified_access_gateway::ForwardedRequest &request) const
 {
-    try
-    {
-        const auto values = parse_key_values(request.payload);
-        const auto &side = values.at("side");
-        const auto &type = values.at("type");
-        const auto &tif = values.at("tif");
-        const auto &order_id = values.at("order_id");
-        const auto &symbol = values.at("symbol");
-        const auto &source_ip = values.at("source_ip");
-        const double price = values.contains("price") ? std::stod(values.at("price")) : 0.0;
-        const double quantity = std::stod(values.at("quantity"));
-
-        return ParsedOrder{
-            .order_id = order_id,
-            .user_id = request.user_id,
-            .symbol = symbol,
-            .source_ip = source_ip,
-            .matching_side = parse_matching_side(side),
-            .risk_side = parse_risk_side(side),
-            .matching_type = parse_matching_type(type),
-            .risk_type = parse_risk_type(type),
-            .tif = parse_tif(tif),
-            .price = price,
-            .quantity = quantity,
-            .timestamp_ms = request.timestamp_ms,
-        };
-    }
-    catch (const std::exception &)
+    const auto values = parse_key_values(request.payload);
+    const auto side_it = values.find("side");
+    const auto type_it = values.find("type");
+    const auto tif_it = values.find("tif");
+    const auto order_id_it = values.find("order_id");
+    const auto symbol_it = values.find("symbol");
+    const auto source_ip_it = values.find("source_ip");
+    const auto quantity_it = values.find("quantity");
+    if (side_it == values.end() || type_it == values.end() || tif_it == values.end() || order_id_it == values.end() ||
+        symbol_it == values.end() || source_ip_it == values.end() || quantity_it == values.end())
     {
         return std::nullopt;
     }
+
+    const auto matching_side = parse_matching_side(side_it->second);
+    const auto risk_side = parse_risk_side(side_it->second);
+    const auto matching_type = parse_matching_type(type_it->second);
+    const auto risk_type = parse_risk_type(type_it->second);
+    const auto tif = parse_tif(tif_it->second);
+    const auto quantity = parse_decimal(quantity_it->second);
+    const auto price = values.contains("price") ? parse_decimal(values.at("price")) : std::optional<double>{0.0};
+    if (!matching_side.has_value() || !risk_side.has_value() || !matching_type.has_value() || !risk_type.has_value() ||
+        !tif.has_value() || !quantity.has_value() || !price.has_value())
+    {
+        return std::nullopt;
+    }
+
+    return ParsedOrder{
+        .order_id = order_id_it->second,
+        .user_id = request.user_id,
+        .symbol = symbol_it->second,
+        .source_ip = source_ip_it->second,
+        .matching_side = *matching_side,
+        .risk_side = *risk_side,
+        .matching_type = *matching_type,
+        .risk_type = *risk_type,
+        .tif = *tif,
+        .price = *price,
+        .quantity = *quantity,
+        .timestamp_ms = request.timestamp_ms,
+    };
 }
 
 double ExchangePipeline::reserve_amount(const ParsedOrder &order) const
@@ -477,14 +561,15 @@ void ExchangePipeline::refresh_market_reference()
     risk_.update_top_of_book(symbol_, best_bid_, best_ask_);
 }
 
-void ExchangePipeline::release_residual_hold(std::string_view hold_id, std::int64_t timestamp_ms)
+account_clearing_system::ClearingOperationResult ExchangePipeline::release_residual_hold(std::string_view hold_id,
+                                                                                         std::int64_t timestamp_ms)
 {
     const auto amount = clearing_.hold_amount(hold_id);
     if (!amount.has_value() || is_zero(*amount))
     {
-        return;
+        return {};
     }
-    (void)clearing_.release_hold(hold_id, timestamp_ms);
+    return clearing_.release_hold(hold_id, timestamp_ms);
 }
 
 std::string project_name()

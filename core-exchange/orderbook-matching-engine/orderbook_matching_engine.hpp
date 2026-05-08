@@ -4,6 +4,7 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -110,10 +111,10 @@ class OrderbookMatchingEngine
     explicit OrderbookMatchingEngine(std::string symbol, std::size_t event_queue_capacity = 4096);
 
     [[nodiscard]] MatchResult submit(const OrderRequest &request);
-    [[nodiscard]] MatchResult cancel(const std::string &order_id, std::uint64_t timestamp);
+    [[nodiscard]] MatchResult cancel(std::string_view order_id, std::uint64_t timestamp);
     [[nodiscard]] market_data_push_system::DepthSnapshot snapshot(std::size_t depth) const;
     [[nodiscard]] std::vector<market_data_push_system::BroadcastMessage> replay_market_data(
-        const std::string &topic, std::uint64_t sequence_after) const;
+        std::string_view topic, std::uint64_t sequence_after) const;
     [[nodiscard]] std::optional<EngineEvent> poll_event();
     [[nodiscard]] std::vector<RestingOrderView> resting_orders() const;
     [[nodiscard]] std::size_t live_order_count() const;
@@ -136,10 +137,10 @@ class OrderbookMatchingEngine
     void remove_resting_order(RestingOrder *order, bool cancel_state);
     void match_against_asks(const OrderRequest &request, double &remaining_quantity, MatchResult &result);
     void match_against_bids(const OrderRequest &request, double &remaining_quantity, MatchResult &result);
-    void emit_order_event(const std::string &order_id, OrderStatus status, RejectReason reason, double open_quantity);
+    void emit_order_event(std::string_view order_id, OrderStatus status, RejectReason reason, double open_quantity);
     void emit_trade_event(const Trade &trade);
     void emit_depth_event();
-    void publish_market_data(const std::string &topic, std::string payload);
+    void publish_market_data(std::string_view topic, std::string payload);
 
     std::string symbol_;
     memory_pool::ObjectPool<RestingOrder> order_pool_;
@@ -151,8 +152,8 @@ class OrderbookMatchingEngine
     lock_free_structures::SpscRingQueue<EngineEvent> event_queue_;
 };
 
-std::string project_name();
+[[nodiscard]] std::string project_name();
 
-ModuleSummary module_summary();
+[[nodiscard]] ModuleSummary module_summary();
 
 } // namespace orderbook_matching_engine

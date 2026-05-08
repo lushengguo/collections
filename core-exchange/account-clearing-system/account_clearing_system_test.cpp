@@ -20,13 +20,13 @@ TEST(AccountClearingSystemTest, FreezeAndReleaseQuoteAdjustBalances)
     account_clearing_system::AccountClearingSystem system;
     system.upsert_account("buyer", {.available_quote = 1000.0});
 
-    EXPECT_TRUE(system.freeze_quote("buyer", "hold-1", 250.0, 1));
+    EXPECT_TRUE(system.freeze_quote("buyer", "hold-1", 250.0, 1).ok());
     auto snapshot = system.account("buyer");
     ASSERT_TRUE(snapshot.has_value());
     EXPECT_DOUBLE_EQ(snapshot->available_quote, 750.0);
     EXPECT_DOUBLE_EQ(snapshot->frozen_quote, 250.0);
 
-    EXPECT_TRUE(system.release_hold("hold-1", 2));
+    EXPECT_TRUE(system.release_hold("hold-1", 2).ok());
     snapshot = system.account("buyer");
     ASSERT_TRUE(snapshot.has_value());
     EXPECT_DOUBLE_EQ(snapshot->available_quote, 1000.0);
@@ -39,8 +39,8 @@ TEST(AccountClearingSystemTest, SpotSettlementMovesBalancesAndAppliesFees)
     system.upsert_account("buyer", {.available_quote = 1200.0});
     system.upsert_account("seller", {.available_base = 1.0, .base_cost = 800.0});
 
-    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1));
-    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1));
+    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1).ok());
+    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1).ok());
 
     const auto result = system.settle_spot_trade(
         {
@@ -57,7 +57,7 @@ TEST(AccountClearingSystemTest, SpotSettlementMovesBalancesAndAppliesFees)
         },
         {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0});
 
-    ASSERT_TRUE(result.success);
+    ASSERT_TRUE(result.ok());
     EXPECT_DOUBLE_EQ(result.notional, 1000.0);
     EXPECT_DOUBLE_EQ(result.buyer_fee, 0.5);
     EXPECT_DOUBLE_EQ(result.seller_fee, 0.2);
@@ -83,8 +83,8 @@ TEST(AccountClearingSystemTest, DuplicateTradeSettlementIsIdempotent)
     account_clearing_system::AccountClearingSystem system;
     system.upsert_account("buyer", {.available_quote = 1200.0});
     system.upsert_account("seller", {.available_base = 1.0, .base_cost = 800.0});
-    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1));
-    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1));
+    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1).ok());
+    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1).ok());
 
     const account_clearing_system::TradeFill fill{
         .trade_id = "trade-2",
@@ -102,9 +102,9 @@ TEST(AccountClearingSystemTest, DuplicateTradeSettlementIsIdempotent)
     const auto first = system.settle_spot_trade(fill, {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0});
     const auto second = system.settle_spot_trade(fill, {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0});
 
-    EXPECT_TRUE(first.success);
-    EXPECT_TRUE(second.success);
-    EXPECT_TRUE(second.duplicate);
+    EXPECT_TRUE(first.ok());
+    EXPECT_TRUE(second.ok());
+    EXPECT_TRUE(second.duplicate());
     EXPECT_EQ(system.pending_outbox(10).size(), 1U);
 }
 
@@ -112,8 +112,8 @@ TEST(AccountClearingSystemTest, ReconcilePassesAfterValidOperations)
 {
     account_clearing_system::AccountClearingSystem system;
     system.upsert_account("buyer", {.available_quote = 500.0});
-    ASSERT_TRUE(system.freeze_quote("buyer", "hold-3", 100.0, 1));
-    ASSERT_TRUE(system.release_hold("hold-3", 2));
+    ASSERT_TRUE(system.freeze_quote("buyer", "hold-3", 100.0, 1).ok());
+    ASSERT_TRUE(system.release_hold("hold-3", 2).ok());
 
     EXPECT_TRUE(system.reconcile_account("buyer"));
 }
@@ -123,8 +123,8 @@ TEST(AccountClearingSystemTest, JournalAndOutboxExposeSettlementHistory)
     account_clearing_system::AccountClearingSystem system;
     system.upsert_account("buyer", {.available_quote = 1200.0});
     system.upsert_account("seller", {.available_base = 1.0, .base_cost = 800.0});
-    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1));
-    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1));
+    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1).ok());
+    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1).ok());
     ASSERT_TRUE(system
                     .settle_spot_trade(
                         {
@@ -140,14 +140,14 @@ TEST(AccountClearingSystemTest, JournalAndOutboxExposeSettlementHistory)
                             .timestamp_ms = 2,
                         },
                         {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0})
-                    .success);
+                    .ok());
 
     const auto buyer_journal = system.journal("buyer");
     const auto outbox = system.pending_outbox(10);
     ASSERT_EQ(buyer_journal.size(), 2U);
     ASSERT_EQ(outbox.size(), 1U);
     EXPECT_EQ(outbox.front().topic, "clearing.settlement");
-    EXPECT_TRUE(system.mark_outbox_dispatched(outbox.front().id));
+    EXPECT_TRUE(system.mark_outbox_dispatched(outbox.front().id).ok());
     EXPECT_TRUE(system.pending_outbox(10).empty());
 }
 
@@ -156,8 +156,8 @@ TEST(AccountClearingSystemTest, SettlementConsumesHoldMetadataForMatchedFill)
     account_clearing_system::AccountClearingSystem system;
     system.upsert_account("buyer", {.available_quote = 1200.0});
     system.upsert_account("seller", {.available_base = 1.0, .base_cost = 800.0});
-    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1));
-    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1));
+    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1).ok());
+    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1).ok());
 
     const auto result = system.settle_spot_trade(
         {
@@ -174,9 +174,21 @@ TEST(AccountClearingSystemTest, SettlementConsumesHoldMetadataForMatchedFill)
         },
         {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0});
 
-    ASSERT_TRUE(result.success);
+    ASSERT_TRUE(result.ok());
     const auto buyer_hold = system.hold_amount("hold-buy");
     ASSERT_TRUE(buyer_hold.has_value());
     EXPECT_DOUBLE_EQ(*buyer_hold, 4.5);
     EXPECT_FALSE(system.hold_amount("hold-sell").has_value());
+}
+
+TEST(AccountClearingSystemTest, FreezeQuoteReturnsTypedFailureForDuplicateHold)
+{
+    account_clearing_system::AccountClearingSystem system;
+    system.upsert_account("buyer", {.available_quote = 1000.0});
+
+    ASSERT_TRUE(system.freeze_quote("buyer", "hold-dup", 50.0, 1).ok());
+    const auto duplicate = system.freeze_quote("buyer", "hold-dup", 25.0, 2);
+
+    EXPECT_EQ(duplicate.status, account_clearing_system::ClearingStatus::kHoldAlreadyExists);
+    EXPECT_EQ(account_clearing_system::status_message(duplicate.status), "hold_already_exists");
 }

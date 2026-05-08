@@ -31,30 +31,30 @@ ObservabilityStack::~ObservabilityStack()
     drain_and_dispose_pending();
 }
 
-bool ObservabilityStack::publish_metric(MetricPoint point)
+PublishResult ObservabilityStack::publish_metric(MetricPoint point)
 {
     auto *envelope = make_metric_envelope(std::move(point));
     if (!queue_.push(envelope))
     {
         envelope_pool_.destroy(envelope);
         ++dropped_events_;
-        return false;
+        return {.status = PublishStatus::kQueueFull};
     }
 
-    return true;
+    return {};
 }
 
-bool ObservabilityStack::publish_span(TraceSpan span)
+PublishResult ObservabilityStack::publish_span(TraceSpan span)
 {
     auto *envelope = make_span_envelope(std::move(span));
     if (!queue_.push(envelope))
     {
         envelope_pool_.destroy(envelope);
         ++dropped_events_;
-        return false;
+        return {.status = PublishStatus::kQueueFull};
     }
 
-    return true;
+    return {};
 }
 
 void ObservabilityStack::register_rule(AlertRule rule)
@@ -126,7 +126,7 @@ std::vector<AlertNotification> ObservabilityStack::alerts() const
 
 std::vector<TelemetryEvent> ObservabilityStack::history() const
 {
-    return history_;
+    return {history_.begin(), history_.end()};
 }
 
 std::size_t ObservabilityStack::pending_events() const noexcept
@@ -260,7 +260,7 @@ void ObservabilityStack::record_event(TelemetryEvent event)
 {
     if (history_.size() == history_limit_)
     {
-        history_.erase(history_.begin());
+        history_.pop_front();
     }
     history_.push_back(std::move(event));
 }
@@ -273,14 +273,14 @@ void ObservabilityStack::drain_and_dispose_pending()
     }
 }
 
-TraceContext child_context(const TraceContext &parent, std::string component, std::uint64_t sequence)
+TraceContext child_context(const TraceContext &parent, std::string_view component, std::uint64_t sequence)
 {
     const auto suffix = std::to_string(sequence);
     TraceContext child{
-        .trace_id = parent.trace_id.empty() ? component + "-trace-" + suffix : parent.trace_id,
-        .span_id = parent.span_id.empty() ? component + "-span-" + suffix : parent.span_id + "." + suffix,
+        .trace_id = parent.trace_id.empty() ? std::string(component) + "-trace-" + suffix : parent.trace_id,
+        .span_id = parent.span_id.empty() ? std::string(component) + "-span-" + suffix : parent.span_id + "." + suffix,
         .parent_span_id = parent.span_id,
-        .component = std::move(component),
+        .component = std::string(component),
     };
     return child;
 }

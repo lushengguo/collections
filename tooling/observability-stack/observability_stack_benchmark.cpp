@@ -7,7 +7,7 @@ static void BM_MetricPublishAndFlush(benchmark::State &state)
     observability_stack::ObservabilityStack stack(4096);
     for (auto _ : state)
     {
-        bool accepted = stack.publish_metric({
+        const auto accepted = stack.publish_metric({
             .name = "gateway.requests",
             .value = static_cast<double>(state.iterations() % 1024),
             .timestamp = 1,
@@ -37,7 +37,7 @@ static void BM_AlertRuleEvaluation(benchmark::State &state)
     std::uint64_t value = 0;
     for (auto _ : state)
     {
-        bool accepted = stack.publish_metric({
+        const auto accepted = stack.publish_metric({
             .name = "gateway.latency.p99",
             .value = static_cast<double>((++value % 7U) * 20U),
             .timestamp = static_cast<std::int64_t>(value),

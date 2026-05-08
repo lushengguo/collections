@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "object_pool.hpp"
@@ -36,6 +37,34 @@ struct FeeSchedule
     double taker_fee_bps{0.0};
 };
 
+enum class ClearingStatus
+{
+    kApplied,
+    kDuplicate,
+    kInvalidInput,
+    kAccountNotFound,
+    kHoldAlreadyExists,
+    kHoldNotFound,
+    kInsufficientQuoteBalance,
+    kInsufficientBasePosition,
+    kBuyerFrozenQuoteInsufficient,
+    kSellerFrozenBaseInsufficient,
+    kBuyerHoldInsufficient,
+    kSellerHoldInsufficient,
+    kOutboxMessageNotFound,
+    kInvariantViolation,
+};
+
+struct ClearingOperationResult
+{
+    ClearingStatus status{ClearingStatus::kApplied};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return status == ClearingStatus::kApplied;
+    }
+};
+
 struct TradeFill
 {
     std::string trade_id;
@@ -52,13 +81,21 @@ struct TradeFill
 
 struct SettlementResult
 {
-    bool success{false};
-    bool duplicate{false};
-    std::string failure_reason;
+    ClearingStatus status{ClearingStatus::kApplied};
     double notional{0.0};
     double buyer_fee{0.0};
     double seller_fee{0.0};
     double seller_realized_pnl{0.0};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return status == ClearingStatus::kApplied || status == ClearingStatus::kDuplicate;
+    }
+
+    [[nodiscard]] bool duplicate() const noexcept
+    {
+        return status == ClearingStatus::kDuplicate;
+    }
 };
 
 struct JournalEntry
@@ -92,18 +129,18 @@ class AccountClearingSystem
     AccountClearingSystem &operator=(const AccountClearingSystem &) = delete;
 
     void upsert_account(std::string account_id, AccountSnapshot snapshot);
-    [[nodiscard]] bool freeze_quote(std::string_view account_id, std::string hold_id, double amount,
-                                    std::int64_t timestamp_ms);
-    [[nodiscard]] bool freeze_base(std::string_view account_id, std::string hold_id, double amount,
-                                   std::int64_t timestamp_ms);
-    [[nodiscard]] bool release_hold(std::string_view hold_id, std::int64_t timestamp_ms);
+    [[nodiscard]] ClearingOperationResult freeze_quote(std::string_view account_id, std::string hold_id, double amount,
+                                                       std::int64_t timestamp_ms);
+    [[nodiscard]] ClearingOperationResult freeze_base(std::string_view account_id, std::string hold_id, double amount,
+                                                      std::int64_t timestamp_ms);
+    [[nodiscard]] ClearingOperationResult release_hold(std::string_view hold_id, std::int64_t timestamp_ms);
     [[nodiscard]] SettlementResult settle_spot_trade(const TradeFill &fill, const FeeSchedule &fee_schedule);
     [[nodiscard]] std::optional<AccountSnapshot> account(std::string_view account_id) const;
     [[nodiscard]] std::optional<double> hold_amount(std::string_view hold_id) const;
     [[nodiscard]] std::vector<JournalEntry> journal(std::string_view account_id) const;
     [[nodiscard]] bool reconcile_account(std::string_view account_id) const;
     [[nodiscard]] std::vector<distributed_consistency::OutboxMessage> pending_outbox(std::size_t max_items) const;
-    [[nodiscard]] bool mark_outbox_dispatched(std::string_view message_id);
+    [[nodiscard]] ClearingOperationResult mark_outbox_dispatched(std::string_view message_id);
 
   private:
     struct HoldRecord
@@ -121,7 +158,7 @@ class AccountClearingSystem
     std::unordered_map<std::string, AccountSnapshot> accounts_;
     std::unordered_map<std::string, HoldRecord> holds_;
     std::unordered_map<std::string, std::vector<JournalEntry *>> journals_;
-    std::unordered_map<std::string, bool> settled_trade_ids_;
+    std::unordered_set<std::string> settled_trade_ids_;
     std::vector<JournalEntry *> journal_storage_;
     distributed_consistency::OutboxStore outbox_;
     memory_pool::ObjectPool<JournalEntry> journal_pool_;
@@ -130,5 +167,7 @@ class AccountClearingSystem
 [[nodiscard]] ModuleSummary module_summary();
 
 [[nodiscard]] std::string project_name();
+
+[[nodiscard]] std::string_view status_message(ClearingStatus status) noexcept;
 
 } // namespace account_clearing_system

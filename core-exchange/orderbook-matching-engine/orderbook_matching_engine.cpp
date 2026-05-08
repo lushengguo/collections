@@ -122,9 +122,9 @@ MatchResult OrderbookMatchingEngine::submit(const OrderRequest &request)
     return request.type == OrderType::kLimit ? handle_limit_order(request) : handle_market_order(request);
 }
 
-MatchResult OrderbookMatchingEngine::cancel(const std::string &order_id, std::uint64_t)
+MatchResult OrderbookMatchingEngine::cancel(std::string_view order_id, std::uint64_t)
 {
-    auto iterator = live_orders_.find(order_id);
+    const auto iterator = live_orders_.find(std::string(order_id));
     if (iterator == live_orders_.end())
     {
         return MatchResult{
@@ -136,7 +136,7 @@ MatchResult OrderbookMatchingEngine::cancel(const std::string &order_id, std::ui
         };
     }
 
-    RestingOrder *order = iterator->second;
+    auto *const order = iterator->second;
     const double open_quantity = order->open_quantity;
     remove_resting_order(order, true);
     emit_order_event(order_id, OrderStatus::kCancelled, RejectReason::kNone, 0.0);
@@ -156,7 +156,7 @@ market_data_push_system::DepthSnapshot OrderbookMatchingEngine::snapshot(std::si
 }
 
 std::vector<market_data_push_system::BroadcastMessage> OrderbookMatchingEngine::replay_market_data(
-    const std::string &topic, std::uint64_t sequence_after) const
+    std::string_view topic, std::uint64_t sequence_after) const
 {
     return broadcaster_.replay(topic, sequence_after);
 }
@@ -467,14 +467,14 @@ void OrderbookMatchingEngine::match_against_asks(const OrderRequest &request, do
 {
     while (remaining_quantity > kPriceEpsilon && !asks_.empty())
     {
-        auto best_level = asks_.begin();
+        const auto best_level = asks_.begin();
         if (request.type == OrderType::kLimit && best_level->first - request.price > kPriceEpsilon)
         {
             break;
         }
 
-        auto &queue = best_level->second;
-        RestingOrder *maker = queue.front();
+        const auto &queue = best_level->second;
+        auto *const maker = queue.front();
         const double fill_quantity = std::min(remaining_quantity, maker->open_quantity);
         maker->open_quantity -= fill_quantity;
         remaining_quantity -= fill_quantity;
@@ -513,14 +513,14 @@ void OrderbookMatchingEngine::match_against_bids(const OrderRequest &request, do
 {
     while (remaining_quantity > kPriceEpsilon && !bids_.empty())
     {
-        auto best_level = bids_.begin();
+        const auto best_level = bids_.begin();
         if (request.type == OrderType::kLimit && request.price - best_level->first > kPriceEpsilon)
         {
             break;
         }
 
-        auto &queue = best_level->second;
-        RestingOrder *maker = queue.front();
+        const auto &queue = best_level->second;
+        auto *const maker = queue.front();
         const double fill_quantity = std::min(remaining_quantity, maker->open_quantity);
         maker->open_quantity -= fill_quantity;
         remaining_quantity -= fill_quantity;
@@ -554,14 +554,15 @@ void OrderbookMatchingEngine::match_against_bids(const OrderRequest &request, do
     }
 }
 
-void OrderbookMatchingEngine::emit_order_event(const std::string &order_id, OrderStatus status, RejectReason reason,
+void OrderbookMatchingEngine::emit_order_event(std::string_view order_id, OrderStatus status, RejectReason reason,
                                                double open_quantity)
 {
     std::ostringstream payload;
     payload << "order_id=" << order_id << ",status=" << to_string(status) << ",reason=" << to_string(reason)
             << ",open_qty=" << open_quantity;
-    publish_market_data("orders." + symbol_, payload.str());
-    event_queue_.push(EngineEvent{.topic = "orders", .payload = payload.str()});
+    const std::string event_payload = payload.str();
+    publish_market_data("orders." + symbol_, event_payload);
+    event_queue_.push(EngineEvent{.topic = "orders", .payload = event_payload});
 }
 
 void OrderbookMatchingEngine::emit_trade_event(const Trade &trade)
@@ -576,13 +577,14 @@ void OrderbookMatchingEngine::emit_depth_event()
     const auto top = depth_book_.snapshot(5);
     std::ostringstream payload;
     payload << "bids=" << top.bids.size() << ",asks=" << top.asks.size();
-    publish_market_data("depth." + symbol_, payload.str());
-    event_queue_.push(EngineEvent{.topic = "depth", .payload = payload.str()});
+    const std::string event_payload = payload.str();
+    publish_market_data("depth." + symbol_, event_payload);
+    event_queue_.push(EngineEvent{.topic = "depth", .payload = event_payload});
 }
 
-void OrderbookMatchingEngine::publish_market_data(const std::string &topic, std::string payload)
+void OrderbookMatchingEngine::publish_market_data(std::string_view topic, std::string payload)
 {
-    const auto message = broadcaster_.publish(topic, std::move(payload));
+    const auto message = broadcaster_.publish(std::string(topic), std::move(payload));
     const auto *message_address = &message;
     (void)message_address;
 }

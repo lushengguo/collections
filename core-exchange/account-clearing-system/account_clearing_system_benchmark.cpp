@@ -11,9 +11,9 @@ static void BM_FreezeAndRelease(benchmark::State &state)
     for (auto _ : state)
     {
         const auto hold_id = "hold-" + std::to_string(++sequence);
-        bool frozen = system.freeze_quote("buyer", hold_id, 10.0, static_cast<std::int64_t>(sequence));
+        const auto frozen = system.freeze_quote("buyer", hold_id, 10.0, static_cast<std::int64_t>(sequence));
         benchmark::DoNotOptimize(&frozen);
-        bool released = system.release_hold(hold_id, static_cast<std::int64_t>(sequence + 1));
+        const auto released = system.release_hold(hold_id, static_cast<std::int64_t>(sequence + 1));
         benchmark::DoNotOptimize(&released);
     }
 }
@@ -34,6 +34,8 @@ static void BM_SpotSettlement(benchmark::State &state)
                 .symbol = "BTCUSDT",
                 .buyer_account_id = "buyer",
                 .seller_account_id = "seller",
+                .buyer_hold_id = "hold-buy",
+                .seller_hold_id = "hold-sell",
                 .price = 1000.0,
                 .quantity = 1.0,
                 .buyer_is_taker = true,

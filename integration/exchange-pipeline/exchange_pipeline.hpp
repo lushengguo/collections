@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -17,8 +18,22 @@
 namespace exchange_pipeline
 {
 
+enum class WorkflowStatus
+{
+    kCompleted,
+    kRouteRejected,
+    kParseRejected,
+    kRiskRejected,
+    kClearingRejected,
+    kMatchingRejected,
+    kSettlementRejected,
+    kInvariantViolation,
+};
+
 struct WorkflowResult
 {
+    WorkflowStatus status{WorkflowStatus::kCompleted};
+    std::string error_detail;
     bool accepted{false};
     unified_access_gateway::RouteResult route_result;
     pre_trade_risk_engine::RiskDecision risk_decision;
@@ -28,6 +43,11 @@ struct WorkflowResult
     std::vector<market_data_push_system::BroadcastMessage> trade_events;
     std::vector<market_data_push_system::BroadcastMessage> depth_events;
     std::vector<distributed_consistency::OutboxMessage> outbox_messages;
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return status == WorkflowStatus::kCompleted;
+    }
 };
 
 class ExchangePipeline
@@ -37,9 +57,9 @@ class ExchangePipeline
 
     void configure_market(double best_bid, double best_ask, account_clearing_system::FeeSchedule fee_schedule,
                           pre_trade_risk_engine::MarketRiskConfig risk_config);
-    void register_user(std::string api_key, std::string secret, std::string user_id,
-                       account_clearing_system::AccountSnapshot account_snapshot, std::size_t max_requests = 100000,
-                       std::int64_t window_ms = 1000);
+    void register_user(std::string_view api_key, std::string_view secret, std::string_view user_id,
+                       const account_clearing_system::AccountSnapshot &account_snapshot,
+                       std::size_t max_requests = 100000, std::int64_t window_ms = 1000);
 
     [[nodiscard]] WorkflowResult submit(const unified_access_gateway::GatewayRequest &request);
     [[nodiscard]] std::optional<account_clearing_system::AccountSnapshot> account(std::string_view user_id) const;
@@ -82,7 +102,8 @@ class ExchangePipeline
     void sync_account_state(std::string_view user_id);
     void sync_resting_orders();
     void refresh_market_reference();
-    void release_residual_hold(std::string_view hold_id, std::int64_t timestamp_ms);
+    [[nodiscard]] account_clearing_system::ClearingOperationResult release_residual_hold(std::string_view hold_id,
+                                                                                         std::int64_t timestamp_ms);
 
     std::string symbol_;
     double best_bid_{0.0};

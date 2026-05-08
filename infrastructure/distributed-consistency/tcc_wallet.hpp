@@ -3,6 +3,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 namespace distributed_consistency
@@ -29,10 +30,10 @@ class TccWallet
     {
     }
 
-    [[nodiscard]] bool try_reserve(const std::string &reservation_id, double amount)
+    [[nodiscard]] bool try_reserve(std::string_view reservation_id, double amount)
     {
         std::scoped_lock lock(mutex_);
-        if (const auto iterator = reservations_.find(reservation_id); iterator != reservations_.end())
+        if (const auto iterator = reservations_.find(std::string(reservation_id)); iterator != reservations_.end())
         {
             return iterator->second.state == ReservationState::kReserved && iterator->second.amount == amount;
         }
@@ -44,18 +45,18 @@ class TccWallet
 
         available_ -= amount;
         reserved_ += amount;
-        reservations_.emplace(reservation_id, ReservationRecord{
-                                                  .reservation_id = reservation_id,
-                                                  .amount = amount,
-                                                  .state = ReservationState::kReserved,
-                                              });
+        reservations_.emplace(std::string(reservation_id), ReservationRecord{
+                                                               .reservation_id = std::string(reservation_id),
+                                                               .amount = amount,
+                                                               .state = ReservationState::kReserved,
+                                                           });
         return true;
     }
 
-    [[nodiscard]] bool confirm(const std::string &reservation_id)
+    [[nodiscard]] bool confirm(std::string_view reservation_id)
     {
         std::scoped_lock lock(mutex_);
-        auto iterator = reservations_.find(reservation_id);
+        auto iterator = reservations_.find(std::string(reservation_id));
         if (iterator == reservations_.end())
         {
             return false;
@@ -77,10 +78,10 @@ class TccWallet
         return true;
     }
 
-    [[nodiscard]] bool cancel(const std::string &reservation_id)
+    [[nodiscard]] bool cancel(std::string_view reservation_id)
     {
         std::scoped_lock lock(mutex_);
-        auto iterator = reservations_.find(reservation_id);
+        auto iterator = reservations_.find(std::string(reservation_id));
         if (iterator == reservations_.end())
         {
             return false;
@@ -120,10 +121,10 @@ class TccWallet
         return committed_;
     }
 
-    [[nodiscard]] std::optional<ReservationRecord> lookup(const std::string &reservation_id) const
+    [[nodiscard]] std::optional<ReservationRecord> lookup(std::string_view reservation_id) const
     {
         std::scoped_lock lock(mutex_);
-        auto iterator = reservations_.find(reservation_id);
+        auto iterator = reservations_.find(std::string(reservation_id));
         if (iterator == reservations_.end())
         {
             return std::nullopt;

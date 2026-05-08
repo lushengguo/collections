@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -55,7 +56,7 @@ class OutboxStore
         return batch;
     }
 
-    [[nodiscard]] bool mark_dispatched(const std::string &message_id)
+    [[nodiscard]] bool mark_dispatched(std::string_view message_id)
     {
         std::scoped_lock lock(mutex_);
         for (auto &message : messages_)

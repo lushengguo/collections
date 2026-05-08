@@ -42,14 +42,14 @@ std::size_t PerformanceToolkit::enqueue_workload(const WorkloadConfig &config)
 
 std::optional<SyntheticRequest> PerformanceToolkit::poll_request()
 {
-    auto envelope = queue_.try_pop();
+    const auto envelope = queue_.try_pop();
     if (!envelope.has_value())
     {
         return std::nullopt;
     }
 
-    auto *value = *envelope;
-    auto request = value->request;
+    auto *const value = *envelope;
+    SyntheticRequest request = std::move(value->request);
     envelope_pool_.destroy(value);
     return request;
 }
@@ -92,7 +92,7 @@ LatencySummary PerformanceToolkit::summarize(double duration_seconds) const
     };
 }
 
-std::string PerformanceToolkit::render_report(const std::string &scenario_name, double duration_seconds) const
+std::string PerformanceToolkit::render_report(std::string_view scenario_name, double duration_seconds) const
 {
     const auto summary = summarize(duration_seconds);
     std::ostringstream report;

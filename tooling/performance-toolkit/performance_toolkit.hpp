@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "object_pool.hpp"
@@ -70,7 +71,7 @@ class PerformanceToolkit
     [[nodiscard]] std::optional<SyntheticRequest> poll_request();
     void record_latency(std::uint64_t latency_ns, bool success);
     [[nodiscard]] LatencySummary summarize(double duration_seconds) const;
-    [[nodiscard]] std::string render_report(const std::string &scenario_name, double duration_seconds) const;
+    [[nodiscard]] std::string render_report(std::string_view scenario_name, double duration_seconds) const;
     [[nodiscard]] std::size_t dropped_requests() const noexcept;
     [[nodiscard]] std::size_t pending_requests() const noexcept;
 

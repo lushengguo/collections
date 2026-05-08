@@ -1,21 +1,24 @@
 #include <benchmark/benchmark.h>
 
+#include <string_view>
+
 #include "exchange_pipeline.hpp"
 
 namespace
 {
 
-unified_access_gateway::GatewayRequest make_request(std::string request_id, std::string user_id, std::string api_key,
-                                                    std::string secret, std::string payload, std::int64_t timestamp_ms)
+unified_access_gateway::GatewayRequest make_request(std::string_view request_id, std::string_view user_id,
+                                                    std::string_view api_key, std::string_view secret,
+                                                    std::string_view payload, std::int64_t timestamp_ms)
 {
     const auto signature = unified_access_gateway::expected_signature(api_key, secret, request_id);
     return {
-        .request_id = std::move(request_id),
-        .user_id = std::move(user_id),
-        .api_key = std::move(api_key),
+        .request_id = std::string(request_id),
+        .user_id = std::string(user_id),
+        .api_key = std::string(api_key),
         .signature = signature,
         .path = "/v1/orders/place",
-        .payload = std::move(payload),
+        .payload = std::string(payload),
         .protocol = unified_access_gateway::Protocol::kRest,
         .timestamp_ms = timestamp_ms,
     };

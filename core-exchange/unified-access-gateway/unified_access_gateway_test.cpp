@@ -69,7 +69,7 @@ TEST(UnifiedAccessGatewayTest, RejectsWhenUserRateLimitIsExceeded)
     gateway.configure_route("/v1/orders", unified_access_gateway::Backend::kMatching, "matching_http");
     gateway.set_user_rate_limit("alice", 2, 1000);
 
-    const auto sign = [&](const std::string &request_id) {
+    const auto sign = [&](std::string_view request_id) {
         return unified_access_gateway::expected_signature("key-1", "secret-1", request_id);
     };
 

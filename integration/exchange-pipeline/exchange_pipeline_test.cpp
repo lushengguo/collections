@@ -1,21 +1,24 @@
 #include <gtest/gtest.h>
 
+#include <string_view>
+
 #include "exchange_pipeline.hpp"
 
 namespace
 {
 
-unified_access_gateway::GatewayRequest make_request(std::string request_id, std::string user_id, std::string api_key,
-                                                    std::string secret, std::string payload, std::int64_t timestamp_ms)
+unified_access_gateway::GatewayRequest make_request(std::string_view request_id, std::string_view user_id,
+                                                    std::string_view api_key, std::string_view secret,
+                                                    std::string_view payload, std::int64_t timestamp_ms)
 {
     const auto signature = unified_access_gateway::expected_signature(api_key, secret, request_id);
     return {
-        .request_id = std::move(request_id),
-        .user_id = std::move(user_id),
-        .api_key = std::move(api_key),
+        .request_id = std::string(request_id),
+        .user_id = std::string(user_id),
+        .api_key = std::string(api_key),
         .signature = signature,
         .path = "/v1/orders/place",
-        .payload = std::move(payload),
+        .payload = std::string(payload),
         .protocol = unified_access_gateway::Protocol::kRest,
         .timestamp_ms = timestamp_ms,
     };
@@ -48,6 +51,7 @@ TEST(ExchangePipelineTest, GatewayRiskMatchingClearingAndMarketDataFormHappyPath
     const auto maker = pipeline.submit(make_request(
         "req-maker", "maker", "seller-key", "seller-secret",
         "order_id=ask-1;symbol=BTCUSDT;side=sell;type=limit;tif=gtc;price=100.0;quantity=1.0;source_ip=10.0.0.1", 1));
+    EXPECT_EQ(maker.status, exchange_pipeline::WorkflowStatus::kCompleted);
     ASSERT_TRUE(maker.route_result.accepted);
     ASSERT_TRUE(maker.risk_decision.accepted);
     ASSERT_TRUE(maker.match_result.accepted);
@@ -56,12 +60,13 @@ TEST(ExchangePipelineTest, GatewayRiskMatchingClearingAndMarketDataFormHappyPath
     const auto taker = pipeline.submit(make_request(
         "req-taker", "taker", "buyer-key", "buyer-secret",
         "order_id=buy-1;symbol=BTCUSDT;side=buy;type=limit;tif=ioc;price=100.0;quantity=1.0;source_ip=10.0.0.2", 2));
+    EXPECT_EQ(taker.status, exchange_pipeline::WorkflowStatus::kCompleted);
     ASSERT_TRUE(taker.route_result.accepted);
     ASSERT_TRUE(taker.risk_decision.accepted);
     ASSERT_TRUE(taker.match_result.accepted);
     ASSERT_EQ(taker.match_result.trades.size(), 1U);
     ASSERT_EQ(taker.settlements.size(), 1U);
-    EXPECT_TRUE(taker.settlements.front().success);
+    EXPECT_TRUE(taker.settlements.front().ok());
 
     const auto buyer = pipeline.account("taker");
     const auto seller = pipeline.account("maker");
@@ -103,6 +108,7 @@ TEST(ExchangePipelineTest, RiskRejectStopsBeforeFundsAreReservedOrMatched)
         "req-bad", "taker", "buyer-key", "buyer-secret",
         "order_id=buy-bad;symbol=BTCUSDT;side=buy;type=limit;tif=gtc;price=200.0;quantity=1.0;source_ip=10.0.0.2", 3));
 
+    EXPECT_EQ(rejected.status, exchange_pipeline::WorkflowStatus::kRiskRejected);
     ASSERT_TRUE(rejected.route_result.accepted);
     EXPECT_FALSE(rejected.risk_decision.accepted);
     EXPECT_EQ(rejected.risk_decision.reject_reason, pre_trade_risk_engine::RejectReason::kPriceBandExceeded);
@@ -114,4 +120,19 @@ TEST(ExchangePipelineTest, RiskRejectStopsBeforeFundsAreReservedOrMatched)
     EXPECT_DOUBLE_EQ(buyer->available_quote, 1000.0);
     EXPECT_DOUBLE_EQ(buyer->frozen_quote, 0.0);
     EXPECT_TRUE(pipeline.replay_market_data("trades.BTCUSDT", 0).empty());
+}
+
+TEST(ExchangePipelineTest, MalformedRequestBecomesTypedParseRejection)
+{
+    exchange_pipeline::ExchangePipeline pipeline("BTCUSDT");
+    configure_pipeline(pipeline);
+
+    const auto malformed = pipeline.submit(make_request(
+        "req-bad-payload", "taker", "buyer-key", "buyer-secret",
+        "order_id=buy-bad;symbol=BTCUSDT;side=buy;type=limit;tif=gtc;quantity=oops;source_ip=10.0.0.2", 4));
+
+    EXPECT_EQ(malformed.status, exchange_pipeline::WorkflowStatus::kParseRejected);
+    EXPECT_FALSE(malformed.risk_decision.accepted);
+    EXPECT_EQ(malformed.risk_decision.reject_reason, pre_trade_risk_engine::RejectReason::kInvalidRequest);
+    EXPECT_TRUE(malformed.match_result.trades.empty());
 }

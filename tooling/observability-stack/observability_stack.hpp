@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -112,6 +113,22 @@ struct ModuleSummary
     std::size_t infrastructure_reuse_points{0};
 };
 
+enum class PublishStatus
+{
+    kEnqueued,
+    kQueueFull,
+};
+
+struct PublishResult
+{
+    PublishStatus status{PublishStatus::kEnqueued};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return status == PublishStatus::kEnqueued;
+    }
+};
+
 class ObservabilityStack
 {
   public:
@@ -121,8 +138,8 @@ class ObservabilityStack
     ObservabilityStack(const ObservabilityStack &) = delete;
     ObservabilityStack &operator=(const ObservabilityStack &) = delete;
 
-    [[nodiscard]] bool publish_metric(MetricPoint point);
-    [[nodiscard]] bool publish_span(TraceSpan span);
+    [[nodiscard]] PublishResult publish_metric(MetricPoint point);
+    [[nodiscard]] PublishResult publish_span(TraceSpan span);
     void register_rule(AlertRule rule);
     [[nodiscard]] std::size_t flush();
     [[nodiscard]] std::optional<MetricSnapshot> metric_snapshot(std::string_view metric_name) const;
@@ -165,11 +182,12 @@ class ObservabilityStack
     std::unordered_map<std::string, AlertRule> rules_;
     std::unordered_map<std::string, std::size_t> breach_counts_;
     std::vector<AlertNotification> alerts_;
-    std::vector<TelemetryEvent> history_;
+    std::deque<TelemetryEvent> history_;
     std::size_t dropped_events_{0};
 };
 
-[[nodiscard]] TraceContext child_context(const TraceContext &parent, std::string component, std::uint64_t sequence);
+[[nodiscard]] TraceContext child_context(const TraceContext &parent, std::string_view component,
+                                         std::uint64_t sequence);
 
 [[nodiscard]] ModuleSummary module_summary();
 

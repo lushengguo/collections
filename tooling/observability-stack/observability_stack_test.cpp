@@ -35,20 +35,26 @@ TEST(ObservabilityStackTest, FlushAggregatesMetricSamplesIntoSnapshot)
 {
     observability_stack::ObservabilityStack stack(16);
 
-    EXPECT_TRUE(stack.publish_metric({
-        .name = "gateway.requests",
-        .value = 100.0,
-        .timestamp = 1,
-        .type = observability_stack::MetricType::kCounter,
-        .trace_context = {.trace_id = "t-1", .span_id = "s-1", .parent_span_id = "", .component = "gateway"},
-    }));
-    EXPECT_TRUE(stack.publish_metric({
-        .name = "gateway.requests",
-        .value = 120.0,
-        .timestamp = 2,
-        .type = observability_stack::MetricType::kCounter,
-        .trace_context = {.trace_id = "t-1", .span_id = "s-2", .parent_span_id = "", .component = "gateway"},
-    }));
+    EXPECT_TRUE(
+        stack
+            .publish_metric({
+                .name = "gateway.requests",
+                .value = 100.0,
+                .timestamp = 1,
+                .type = observability_stack::MetricType::kCounter,
+                .trace_context = {.trace_id = "t-1", .span_id = "s-1", .parent_span_id = "", .component = "gateway"},
+            })
+            .ok());
+    EXPECT_TRUE(
+        stack
+            .publish_metric({
+                .name = "gateway.requests",
+                .value = 120.0,
+                .timestamp = 2,
+                .type = observability_stack::MetricType::kCounter,
+                .trace_context = {.trace_id = "t-1", .span_id = "s-2", .parent_span_id = "", .component = "gateway"},
+            })
+            .ok());
 
     EXPECT_EQ(stack.flush(), 2U);
 
@@ -76,20 +82,26 @@ TEST(ObservabilityStackTest, ThresholdAlertRequiresConsecutiveBreaches)
         .severity = observability_stack::AlertSeverity::kCritical,
     });
 
-    EXPECT_TRUE(stack.publish_metric({
-        .name = "gateway.latency.p99",
-        .value = 21.0,
-        .timestamp = 1,
-        .type = observability_stack::MetricType::kGauge,
-        .trace_context = {.trace_id = "trace-a", .span_id = "span-a", .parent_span_id = "", .component = "gateway"},
-    }));
-    EXPECT_TRUE(stack.publish_metric({
-        .name = "gateway.latency.p99",
-        .value = 22.0,
-        .timestamp = 2,
-        .type = observability_stack::MetricType::kGauge,
-        .trace_context = {.trace_id = "trace-a", .span_id = "span-b", .parent_span_id = "", .component = "gateway"},
-    }));
+    EXPECT_TRUE(stack
+                    .publish_metric({
+                        .name = "gateway.latency.p99",
+                        .value = 21.0,
+                        .timestamp = 1,
+                        .type = observability_stack::MetricType::kGauge,
+                        .trace_context =
+                            {.trace_id = "trace-a", .span_id = "span-a", .parent_span_id = "", .component = "gateway"},
+                    })
+                    .ok());
+    EXPECT_TRUE(stack
+                    .publish_metric({
+                        .name = "gateway.latency.p99",
+                        .value = 22.0,
+                        .timestamp = 2,
+                        .type = observability_stack::MetricType::kGauge,
+                        .trace_context =
+                            {.trace_id = "trace-a", .span_id = "span-b", .parent_span_id = "", .component = "gateway"},
+                    })
+                    .ok());
 
     EXPECT_EQ(stack.flush(), 2U);
 
@@ -107,9 +119,10 @@ TEST(ObservabilityStackTest, QueueOverflowIncrementsDroppedEventCount)
 {
     observability_stack::ObservabilityStack stack(2);
 
-    EXPECT_TRUE(stack.publish_metric({.name = "metric-1", .value = 1.0, .timestamp = 1}));
-    EXPECT_TRUE(stack.publish_metric({.name = "metric-2", .value = 2.0, .timestamp = 2}));
-    EXPECT_FALSE(stack.publish_metric({.name = "metric-3", .value = 3.0, .timestamp = 3}));
+    EXPECT_TRUE(stack.publish_metric({.name = "metric-1", .value = 1.0, .timestamp = 1}).ok());
+    EXPECT_TRUE(stack.publish_metric({.name = "metric-2", .value = 2.0, .timestamp = 2}).ok());
+    EXPECT_EQ(stack.publish_metric({.name = "metric-3", .value = 3.0, .timestamp = 3}).status,
+              observability_stack::PublishStatus::kQueueFull);
 
     EXPECT_EQ(stack.dropped_events(), 1U);
     EXPECT_EQ(stack.pending_events(), 2U);
@@ -118,13 +131,18 @@ TEST(ObservabilityStackTest, QueueOverflowIncrementsDroppedEventCount)
 TEST(ObservabilityStackTest, SpanEventsCaptureDurationAndSuccessFlag)
 {
     observability_stack::ObservabilityStack stack(8);
-    EXPECT_TRUE(stack.publish_span({
-        .context = {.trace_id = "trace-7", .span_id = "gateway-7", .parent_span_id = "", .component = "gateway"},
-        .operation = "place_order",
-        .start_timestamp = 100,
-        .end_timestamp = 145,
-        .success = true,
-    }));
+    EXPECT_TRUE(stack
+                    .publish_span({
+                        .context = {.trace_id = "trace-7",
+                                    .span_id = "gateway-7",
+                                    .parent_span_id = "",
+                                    .component = "gateway"},
+                        .operation = "place_order",
+                        .start_timestamp = 100,
+                        .end_timestamp = 145,
+                        .success = true,
+                    })
+                    .ok());
 
     EXPECT_EQ(stack.flush(), 1U);
     const auto history = stack.history();

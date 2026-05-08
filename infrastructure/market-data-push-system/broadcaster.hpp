@@ -5,6 +5,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -17,11 +18,11 @@ namespace market_data_push_system
 class MarketDataBroadcaster
 {
   public:
-    [[nodiscard]] std::uint64_t subscribe(const std::string &topic)
+    [[nodiscard]] std::uint64_t subscribe(std::string_view topic)
     {
         std::scoped_lock lock(mutex_);
         const std::uint64_t subscriber_id = ++next_subscriber_id_;
-        subscribers_.emplace(subscriber_id, SubscriptionState{.topic = topic, .next_sequence = 1});
+        subscribers_.emplace(subscriber_id, SubscriptionState{.topic = std::string(topic), .next_sequence = 1});
         return subscriber_id;
     }
 
@@ -73,11 +74,11 @@ class MarketDataBroadcaster
         return batch;
     }
 
-    [[nodiscard]] std::vector<BroadcastMessage> replay(const std::string &topic, std::uint64_t sequence_after) const
+    [[nodiscard]] std::vector<BroadcastMessage> replay(std::string_view topic, std::uint64_t sequence_after) const
     {
         std::scoped_lock lock(mutex_);
         std::vector<BroadcastMessage> messages;
-        auto iterator = history_.find(topic);
+        auto iterator = history_.find(std::string(topic));
         if (iterator == history_.end())
         {
             return messages;

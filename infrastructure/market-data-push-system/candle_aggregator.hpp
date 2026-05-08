@@ -4,6 +4,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include "market_types.hpp"
@@ -54,7 +55,7 @@ class CandleAggregator
         return candle;
     }
 
-    [[nodiscard]] std::optional<Candle> latest(const std::string &symbol, std::uint64_t event_time_ms) const
+    [[nodiscard]] std::optional<Candle> latest(std::string_view symbol, std::uint64_t event_time_ms) const
     {
         const auto bucket_time = bucket_open_time(event_time_ms);
         const auto key = make_key(symbol, bucket_time);
@@ -73,9 +74,9 @@ class CandleAggregator
         return (event_time_ms / interval_ms_) * interval_ms_;
     }
 
-    [[nodiscard]] static std::string make_key(const std::string &symbol, std::uint64_t open_time_ms)
+    [[nodiscard]] static std::string make_key(std::string_view symbol, std::uint64_t open_time_ms)
     {
-        return symbol + ':' + std::to_string(open_time_ms);
+        return std::string(symbol) + ':' + std::to_string(open_time_ms);
     }
 
     std::uint64_t interval_ms_;

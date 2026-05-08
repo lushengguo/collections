@@ -15,8 +15,8 @@ struct ModuleSummary
     std::uint32_t building_blocks;
 };
 
-std::string project_name();
+[[nodiscard]] std::string project_name();
 
-ModuleSummary module_summary();
+[[nodiscard]] ModuleSummary module_summary();
 
 } // namespace memory_pool

@@ -16,8 +16,8 @@ struct ModuleSummary
     std::uint32_t market_data_components;
 };
 
-std::string project_name();
+[[nodiscard]] std::string project_name();
 
-ModuleSummary module_summary();
+[[nodiscard]] ModuleSummary module_summary();
 
 } // namespace market_data_push_system

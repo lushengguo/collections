@@ -11,12 +11,12 @@ namespace pre_trade_risk_engine
 namespace
 {
 
-market_data_push_system::Side bid_side()
+constexpr market_data_push_system::Side bid_side() noexcept
 {
     return market_data_push_system::Side::kBid;
 }
 
-market_data_push_system::Side ask_side()
+constexpr market_data_push_system::Side ask_side() noexcept
 {
     return market_data_push_system::Side::kAsk;
 }
@@ -87,7 +87,13 @@ void PreTradeRiskEngine::track_resting_order(std::string_view symbol, RestingOrd
 
 void PreTradeRiskEngine::clear_user_resting_orders(std::string_view symbol, std::string_view user_id)
 {
-    auto &orders = resting_orders_[std::string(symbol)];
+    const auto orders_it = resting_orders_.find(std::string(symbol));
+    if (orders_it == resting_orders_.end())
+    {
+        return;
+    }
+
+    auto &orders = orders_it->second;
     orders.erase(std::remove_if(orders.begin(), orders.end(),
                                 [&](const auto &resting_order) { return resting_order.user_id == user_id; }),
                  orders.end());
@@ -95,14 +101,14 @@ void PreTradeRiskEngine::clear_user_resting_orders(std::string_view symbol, std:
 
 RiskDecision PreTradeRiskEngine::evaluate(const OrderRequest &request)
 {
-    auto make_decision = [&](bool accepted, RejectReason reject_reason, std::string rule_name) {
+    const auto make_decision = [&](bool accepted, RejectReason reject_reason, std::string_view rule_name) {
         const auto market_it = markets_.find(request.symbol);
         const auto ref_price = market_it == markets_.end() ? 0.0 : reference_price(market_it->second, request);
         const auto notional = ref_price * request.quantity;
         return RiskDecision{
             .accepted = accepted,
             .reject_reason = reject_reason,
-            .rule_name = std::move(rule_name),
+            .rule_name = std::string(rule_name),
             .order_id = request.order_id,
             .user_id = request.user_id,
             .symbol = request.symbol,
@@ -171,9 +177,20 @@ RiskDecision PreTradeRiskEngine::evaluate(const OrderRequest &request)
     {
         decision = make_decision(false, RejectReason::kRateLimited, "user_ip_rate_limit");
     }
-    else if (market.config.enable_self_trade_prevention && would_self_trade(request, resting_orders_[request.symbol]))
+    else if (market.config.enable_self_trade_prevention)
     {
-        decision = make_decision(false, RejectReason::kSelfTradePrevented, "self_trade_prevention");
+        static const std::vector<RestingOrderView> kEmptyRestingOrders;
+        const auto resting_orders_it = resting_orders_.find(request.symbol);
+        const auto &resting_orders =
+            resting_orders_it == resting_orders_.end() ? kEmptyRestingOrders : resting_orders_it->second;
+        if (would_self_trade(request, resting_orders))
+        {
+            decision = make_decision(false, RejectReason::kSelfTradePrevented, "self_trade_prevention");
+        }
+        else
+        {
+            decision = make_decision(true, RejectReason::kNone, "accepted");
+        }
     }
     else
     {

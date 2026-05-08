@@ -15,8 +15,8 @@ struct ModuleSummary
     std::uint32_t queue_variants;
 };
 
-std::string project_name();
+[[nodiscard]] std::string project_name();
 
-ModuleSummary module_summary();
+[[nodiscard]] ModuleSummary module_summary();
 
 } // namespace lock_free_structures
