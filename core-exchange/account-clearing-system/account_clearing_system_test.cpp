@@ -48,6 +48,8 @@ TEST(AccountClearingSystemTest, SpotSettlementMovesBalancesAndAppliesFees)
             .symbol = "BTCUSDT",
             .buyer_account_id = "buyer",
             .seller_account_id = "seller",
+            .buyer_hold_id = "hold-buy",
+            .seller_hold_id = "hold-sell",
             .price = 1000.0,
             .quantity = 1.0,
             .buyer_is_taker = true,
@@ -67,9 +69,13 @@ TEST(AccountClearingSystemTest, SpotSettlementMovesBalancesAndAppliesFees)
     EXPECT_DOUBLE_EQ(buyer->available_base, 1.0);
     EXPECT_DOUBLE_EQ(buyer->frozen_quote, 4.5);
     EXPECT_DOUBLE_EQ(buyer->base_cost, 1000.5);
+    const auto buyer_hold = system.hold_amount("hold-buy");
+    ASSERT_TRUE(buyer_hold.has_value());
+    EXPECT_DOUBLE_EQ(*buyer_hold, 4.5);
     EXPECT_DOUBLE_EQ(seller->available_quote, 999.8);
     EXPECT_DOUBLE_EQ(seller->frozen_base, 0.0);
     EXPECT_DOUBLE_EQ(seller->realized_pnl, 199.8);
+    EXPECT_FALSE(system.hold_amount("hold-sell").has_value());
 }
 
 TEST(AccountClearingSystemTest, DuplicateTradeSettlementIsIdempotent)
@@ -85,6 +91,8 @@ TEST(AccountClearingSystemTest, DuplicateTradeSettlementIsIdempotent)
         .symbol = "BTCUSDT",
         .buyer_account_id = "buyer",
         .seller_account_id = "seller",
+        .buyer_hold_id = "hold-buy",
+        .seller_hold_id = "hold-sell",
         .price = 1000.0,
         .quantity = 1.0,
         .buyer_is_taker = true,
@@ -124,6 +132,8 @@ TEST(AccountClearingSystemTest, JournalAndOutboxExposeSettlementHistory)
                             .symbol = "BTCUSDT",
                             .buyer_account_id = "buyer",
                             .seller_account_id = "seller",
+                            .buyer_hold_id = "hold-buy",
+                            .seller_hold_id = "hold-sell",
                             .price = 1000.0,
                             .quantity = 1.0,
                             .buyer_is_taker = true,
@@ -139,4 +149,34 @@ TEST(AccountClearingSystemTest, JournalAndOutboxExposeSettlementHistory)
     EXPECT_EQ(outbox.front().topic, "clearing.settlement");
     EXPECT_TRUE(system.mark_outbox_dispatched(outbox.front().id));
     EXPECT_TRUE(system.pending_outbox(10).empty());
+}
+
+TEST(AccountClearingSystemTest, SettlementConsumesHoldMetadataForMatchedFill)
+{
+    account_clearing_system::AccountClearingSystem system;
+    system.upsert_account("buyer", {.available_quote = 1200.0});
+    system.upsert_account("seller", {.available_base = 1.0, .base_cost = 800.0});
+    ASSERT_TRUE(system.freeze_quote("buyer", "hold-buy", 1005.0, 1));
+    ASSERT_TRUE(system.freeze_base("seller", "hold-sell", 1.0, 1));
+
+    const auto result = system.settle_spot_trade(
+        {
+            .trade_id = "trade-4",
+            .symbol = "BTCUSDT",
+            .buyer_account_id = "buyer",
+            .seller_account_id = "seller",
+            .buyer_hold_id = "hold-buy",
+            .seller_hold_id = "hold-sell",
+            .price = 1000.0,
+            .quantity = 1.0,
+            .buyer_is_taker = true,
+            .timestamp_ms = 2,
+        },
+        {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0});
+
+    ASSERT_TRUE(result.success);
+    const auto buyer_hold = system.hold_amount("hold-buy");
+    ASSERT_TRUE(buyer_hold.has_value());
+    EXPECT_DOUBLE_EQ(*buyer_hold, 4.5);
+    EXPECT_FALSE(system.hold_amount("hold-sell").has_value());
 }

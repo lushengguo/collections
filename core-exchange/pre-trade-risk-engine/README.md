@@ -29,6 +29,12 @@ This module provides a deterministic pre-trade validation chain that can reject 
 - audit-log capture
 - timeout-bounded benchmark smoke run
 
+## Measured Benchmark Snapshot
+
+- `BM_RiskEvaluationAccepted/4096`: 474 ns CPU time
+- `BM_RateLimitRejections/4096`: 5369 ns CPU time
+- Result page: BENCHMARK_RESULTS.md
+
 ## Build
 
 Debug build with sanitizers:

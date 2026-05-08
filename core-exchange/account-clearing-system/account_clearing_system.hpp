@@ -42,6 +42,8 @@ struct TradeFill
     std::string symbol;
     std::string buyer_account_id;
     std::string seller_account_id;
+    std::string buyer_hold_id;
+    std::string seller_hold_id;
     double price{0.0};
     double quantity{0.0};
     bool buyer_is_taker{true};
@@ -97,6 +99,7 @@ class AccountClearingSystem
     [[nodiscard]] bool release_hold(std::string_view hold_id, std::int64_t timestamp_ms);
     [[nodiscard]] SettlementResult settle_spot_trade(const TradeFill &fill, const FeeSchedule &fee_schedule);
     [[nodiscard]] std::optional<AccountSnapshot> account(std::string_view account_id) const;
+    [[nodiscard]] std::optional<double> hold_amount(std::string_view hold_id) const;
     [[nodiscard]] std::vector<JournalEntry> journal(std::string_view account_id) const;
     [[nodiscard]] bool reconcile_account(std::string_view account_id) const;
     [[nodiscard]] std::vector<distributed_consistency::OutboxMessage> pending_outbox(std::size_t max_items) const;

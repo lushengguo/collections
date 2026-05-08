@@ -35,10 +35,8 @@ cmake -S . -B build/release -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++ -DC
 cmake --build build/release --target run_benchmarks
 ```
 
-## Planned Benchmark Coverage
+## Measured Benchmark Snapshot
 
-- single-symbol order insertion throughput
-- cancel-path latency
-- matching latency at P50, P99, and P999
-- orderbook snapshot generation cost
-- throughput under mixed limit and market order flows
+- `BM_LimitInsertions/2000`: 1229035 ns CPU time, 1.63M inserts/s
+- `BM_MixedMatchingFlow/200`: 387182 ns CPU time, 1.03M ops/s
+- Result page: BENCHMARK_RESULTS.md

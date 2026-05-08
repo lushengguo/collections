@@ -10,6 +10,7 @@ CompileFlags:
     - -Iinfrastructure/lock-free-structures
     - -Iinfrastructure/memory-pool
     - -Iinfrastructure/market-data-push-system
+    - -Iintegration/exchange-pipeline
     - -Itooling/observability-stack
     - -Itooling/performance-toolkit
 Diagnostics:
@@ -62,6 +63,12 @@ If:
   PathMatch: ^infrastructure/market-data-push-system/.*
 CompileFlags:
   CompilationDatabase: build/infrastructure/market-data-push-system/debug
+
+---
+If:
+  PathMatch: ^integration/exchange-pipeline/.*
+CompileFlags:
+  CompilationDatabase: build/integration/exchange-pipeline/debug
 
 ---
 If:

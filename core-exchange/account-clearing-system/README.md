@@ -29,6 +29,12 @@ This module provides the core ledger and settlement flow for spot account balanc
 - journal and outbox visibility
 - timeout-bounded benchmark smoke run
 
+## Measured Benchmark Snapshot
+
+- `BM_FreezeAndRelease/4096`: 128 ns CPU time
+- `BM_SpotSettlement/1024`: 1760 ns CPU time
+- Result page: BENCHMARK_RESULTS.md
+
 ## Build
 
 Debug build with sanitizers:

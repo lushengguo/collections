@@ -30,6 +30,12 @@ This module provides a protocol-neutral ingress layer for exchange traffic. The 
 - stale-session cleanup
 - timeout-bounded benchmark smoke run
 
+## Measured Benchmark Snapshot
+
+- `BM_RouteAcceptedRequests/4096`: 508 ns CPU time
+- `BM_ReplayRouteEvents/1024`: 883 ns CPU time
+- Result page: BENCHMARK_RESULTS.md
+
 ## Build
 
 Debug build with sanitizers:

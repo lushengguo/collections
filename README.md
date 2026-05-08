@@ -31,6 +31,10 @@ Every project is isolated in its own folder and includes:
 - tooling/performance-toolkit
 - tooling/observability-stack
 
+### Integration
+
+- integration/exchange-pipeline
+
 ## Toolchain
 
 - CMake 3.25+
@@ -55,4 +59,6 @@ cmake --build build/core-exchange/orderbook-matching-engine/release --target run
 ```
 
 Each module README explains the implemented scope, infrastructure reuse, validation coverage, and local build flow.
+
+Measured benchmark results and design trade-offs are documented in BENCHMARK_RESULTS.md.
 

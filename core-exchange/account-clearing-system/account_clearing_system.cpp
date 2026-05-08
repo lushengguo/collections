@@ -9,9 +9,16 @@ namespace account_clearing_system
 namespace
 {
 
+constexpr double kBalanceEpsilon = 1e-9;
+
 double fee_amount(double notional, double fee_bps)
 {
     return notional * fee_bps / 10000.0;
+}
+
+bool is_zero(double value)
+{
+    return value >= -kBalanceEpsilon && value <= kBalanceEpsilon;
 }
 
 } // namespace
@@ -132,16 +139,37 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
         fee_amount(notional, fill.buyer_is_taker ? fee_schedule.taker_fee_bps : fee_schedule.maker_fee_bps);
     const auto seller_fee =
         fee_amount(notional, fill.buyer_is_taker ? fee_schedule.maker_fee_bps : fee_schedule.taker_fee_bps);
+    const auto buyer_consumed_quote = notional + buyer_fee;
+    const auto seller_consumed_base = fill.quantity;
 
     auto &buyer = buyer_it->second;
     auto &seller = seller_it->second;
-    if (buyer.frozen_quote < notional + buyer_fee)
+    if (buyer.frozen_quote < buyer_consumed_quote)
     {
         return SettlementResult{.success = false, .failure_reason = "buyer_frozen_quote_insufficient"};
     }
-    if (seller.frozen_base < fill.quantity)
+    if (seller.frozen_base < seller_consumed_base)
     {
         return SettlementResult{.success = false, .failure_reason = "seller_frozen_base_insufficient"};
+    }
+
+    if (!fill.buyer_hold_id.empty())
+    {
+        auto buyer_hold_it = holds_.find(fill.buyer_hold_id);
+        if (buyer_hold_it == holds_.end() || buyer_hold_it->second.account_id != fill.buyer_account_id ||
+            buyer_hold_it->second.asset != HoldAsset::kQuote || buyer_hold_it->second.amount < buyer_consumed_quote)
+        {
+            return SettlementResult{.success = false, .failure_reason = "buyer_hold_insufficient"};
+        }
+    }
+    if (!fill.seller_hold_id.empty())
+    {
+        auto seller_hold_it = holds_.find(fill.seller_hold_id);
+        if (seller_hold_it == holds_.end() || seller_hold_it->second.account_id != fill.seller_account_id ||
+            seller_hold_it->second.asset != HoldAsset::kBase || seller_hold_it->second.amount < seller_consumed_base)
+        {
+            return SettlementResult{.success = false, .failure_reason = "seller_hold_insufficient"};
+        }
     }
 
     const auto seller_total_base_before = seller.available_base + seller.frozen_base;
@@ -150,14 +178,33 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
     const auto seller_cost_released = seller_cost_per_unit * fill.quantity;
     const auto seller_realized_pnl = notional - seller_fee - seller_cost_released;
 
-    buyer.frozen_quote -= notional + buyer_fee;
+    buyer.frozen_quote -= buyer_consumed_quote;
     buyer.available_base += fill.quantity;
-    buyer.base_cost += notional + buyer_fee;
+    buyer.base_cost += buyer_consumed_quote;
 
-    seller.frozen_base -= fill.quantity;
+    seller.frozen_base -= seller_consumed_base;
     seller.available_quote += notional - seller_fee;
     seller.base_cost -= seller_cost_released;
     seller.realized_pnl += seller_realized_pnl;
+
+    if (!fill.buyer_hold_id.empty())
+    {
+        auto buyer_hold_it = holds_.find(fill.buyer_hold_id);
+        buyer_hold_it->second.amount -= buyer_consumed_quote;
+        if (is_zero(buyer_hold_it->second.amount))
+        {
+            holds_.erase(buyer_hold_it);
+        }
+    }
+    if (!fill.seller_hold_id.empty())
+    {
+        auto seller_hold_it = holds_.find(fill.seller_hold_id);
+        seller_hold_it->second.amount -= seller_consumed_base;
+        if (is_zero(seller_hold_it->second.amount))
+        {
+            holds_.erase(seller_hold_it);
+        }
+    }
 
     append_journal(fill.buyer_account_id, fill.trade_id, "spot_trade_buy", 0.0, -(notional + buyer_fee), fill.quantity,
                    0.0, notional + buyer_fee, 0.0, fill.timestamp_ms);
@@ -191,6 +238,16 @@ std::optional<AccountSnapshot> AccountClearingSystem::account(std::string_view a
         return std::nullopt;
     }
     return it->second;
+}
+
+std::optional<double> AccountClearingSystem::hold_amount(std::string_view hold_id) const
+{
+    const auto it = holds_.find(std::string(hold_id));
+    if (it == holds_.end())
+    {
+        return std::nullopt;
+    }
+    return it->second.amount;
 }
 
 std::vector<JournalEntry> AccountClearingSystem::journal(std::string_view account_id) const
