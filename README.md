@@ -4,7 +4,7 @@ This repository contains independent C++20 projects for core centralized exchang
 
 Every project is isolated in its own folder and includes:
 - a self-contained CMake build
-- implemented source and header files
+- implemented source, header, test, and benchmark files stored directly in the module root
 - a GoogleTest target
 - a Google Benchmark target
 - AddressSanitizer enabled for Debug builds

@@ -95,29 +95,29 @@ if(ACCOUNT_CLEARING_SYSTEM_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(account_clearing_system_lib
-  src/account_clearing_system.cpp
+  account_clearing_system.cpp
 )
 
 target_include_directories(account_clearing_system_lib
   PUBLIC
-    include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/distributed-consistency/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/distributed-consistency
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool
 )
 target_link_libraries(account_clearing_system_lib PUBLIC account_clearing_system_project_options)
 
-add_executable(account_clearing_system_app src/main.cpp)
+add_executable(account_clearing_system_app main.cpp)
 target_link_libraries(account_clearing_system_app PRIVATE account_clearing_system_lib)
 
 enable_testing()
 
-add_executable(account_clearing_system_tests tests/account_clearing_system_test.cpp)
+add_executable(account_clearing_system_tests account_clearing_system_test.cpp)
 target_link_libraries(account_clearing_system_tests PRIVATE account_clearing_system_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(account_clearing_system_tests)
 
-add_executable(account_clearing_system_benchmarks benchmarks/account_clearing_system_benchmark.cpp)
+add_executable(account_clearing_system_benchmarks account_clearing_system_benchmark.cpp)
 target_link_libraries(account_clearing_system_benchmarks PRIVATE account_clearing_system_lib benchmark::benchmark)
 
 add_test(

@@ -15,10 +15,8 @@ This module will host low-latency concurrent data structures required by exchang
 
 ## Implemented Layout
 
-- include/: concurrent queue interfaces and supporting utilities
-- src/: executable entry point and implementation units
-- tests/: correctness and concurrency-oriented validation
-- benchmarks/: throughput coverage for ring-buffer and linked-queue paths
+- module root: concurrent queue headers, implementation units, executable entry point, tests, and benchmark sources kept together for quick inspection
+- focus files: lock_free_structures.hpp, spsc_ring_queue.hpp, mpmc_linked_queue.hpp, lock_free_structures_test.cpp, and lock_free_structures_benchmark.cpp
 
 ## Build
 

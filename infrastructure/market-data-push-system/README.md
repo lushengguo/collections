@@ -15,10 +15,8 @@ This module will become the exchange market-data fanout and replay service. The 
 
 ## Implemented Layout
 
-- include/: stream, depth, candle, broadcaster, and data model interfaces
-- src/: executable entry point and implementation units
-- tests/: aggregation, snapshot, and replay validation
-- benchmarks/: push-path throughput and replay cost coverage
+- module root: stream, depth, candle, broadcaster, and data-model headers plus implementation, executable, test, and benchmark sources kept together for quick inspection
+- focus files: market_data_push_system.hpp, broadcaster.hpp, candle_aggregator.hpp, depth_book.hpp, market_data_push_system_test.cpp, and market_data_push_system_benchmark.cpp
 
 ## Build
 

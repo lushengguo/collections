@@ -95,29 +95,29 @@ if(OBSERVABILITY_STACK_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(observability_stack_lib
-  src/observability_stack.cpp
+  observability_stack.cpp
 )
 
 target_include_directories(observability_stack_lib
   PUBLIC
-    include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool
 )
 target_link_libraries(observability_stack_lib PUBLIC observability_stack_project_options)
 
-add_executable(observability_stack_app src/main.cpp)
+add_executable(observability_stack_app main.cpp)
 target_link_libraries(observability_stack_app PRIVATE observability_stack_lib)
 
 enable_testing()
 
-add_executable(observability_stack_tests tests/observability_stack_test.cpp)
+add_executable(observability_stack_tests observability_stack_test.cpp)
 target_link_libraries(observability_stack_tests PRIVATE observability_stack_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(observability_stack_tests)
 
-add_executable(observability_stack_benchmarks benchmarks/observability_stack_benchmark.cpp)
+add_executable(observability_stack_benchmarks observability_stack_benchmark.cpp)
 target_link_libraries(observability_stack_benchmarks PRIVATE observability_stack_lib benchmark::benchmark)
 
 add_test(

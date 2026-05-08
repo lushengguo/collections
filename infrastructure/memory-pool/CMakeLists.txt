@@ -95,24 +95,24 @@ if(MEMORY_POOL_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(memory_pool_lib
-  src/memory_pool.cpp
+  memory_pool.cpp
 )
 
-target_include_directories(memory_pool_lib PUBLIC include)
+target_include_directories(memory_pool_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(memory_pool_lib PUBLIC memory_pool_project_options)
 
-add_executable(memory_pool_app src/main.cpp)
+add_executable(memory_pool_app main.cpp)
 target_link_libraries(memory_pool_app PRIVATE memory_pool_lib)
 
 enable_testing()
 
-add_executable(memory_pool_tests tests/memory_pool_test.cpp)
+add_executable(memory_pool_tests memory_pool_test.cpp)
 target_link_libraries(memory_pool_tests PRIVATE memory_pool_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(memory_pool_tests)
 
-add_executable(memory_pool_benchmarks benchmarks/memory_pool_benchmark.cpp)
+add_executable(memory_pool_benchmarks memory_pool_benchmark.cpp)
 target_link_libraries(memory_pool_benchmarks PRIVATE memory_pool_lib benchmark::benchmark)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

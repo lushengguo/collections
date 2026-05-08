@@ -95,24 +95,24 @@ if(DISTRIBUTED_CONSISTENCY_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(distributed_consistency_lib
-  src/distributed_consistency.cpp
+  distributed_consistency.cpp
 )
 
-target_include_directories(distributed_consistency_lib PUBLIC include)
+target_include_directories(distributed_consistency_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(distributed_consistency_lib PUBLIC distributed_consistency_project_options)
 
-add_executable(distributed_consistency_app src/main.cpp)
+add_executable(distributed_consistency_app main.cpp)
 target_link_libraries(distributed_consistency_app PRIVATE distributed_consistency_lib)
 
 enable_testing()
 
-add_executable(distributed_consistency_tests tests/distributed_consistency_test.cpp)
+add_executable(distributed_consistency_tests distributed_consistency_test.cpp)
 target_link_libraries(distributed_consistency_tests PRIVATE distributed_consistency_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(distributed_consistency_tests)
 
-add_executable(distributed_consistency_benchmarks benchmarks/distributed_consistency_benchmark.cpp)
+add_executable(distributed_consistency_benchmarks distributed_consistency_benchmark.cpp)
 target_link_libraries(distributed_consistency_benchmarks PRIVATE distributed_consistency_lib benchmark::benchmark)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

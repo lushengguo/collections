@@ -95,30 +95,30 @@ if(ORDERBOOK_MATCHING_ENGINE_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(orderbook_matching_engine_lib
-  src/orderbook_matching_engine.cpp
+  orderbook_matching_engine.cpp
 )
 
 target_include_directories(orderbook_matching_engine_lib
   PUBLIC
-    include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/market-data-push-system/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/market-data-push-system
 )
 target_link_libraries(orderbook_matching_engine_lib PUBLIC orderbook_matching_engine_project_options)
 
-add_executable(orderbook_matching_engine_app src/main.cpp)
+add_executable(orderbook_matching_engine_app main.cpp)
 target_link_libraries(orderbook_matching_engine_app PRIVATE orderbook_matching_engine_lib)
 
 enable_testing()
 
-add_executable(orderbook_matching_engine_tests tests/orderbook_matching_engine_test.cpp)
+add_executable(orderbook_matching_engine_tests orderbook_matching_engine_test.cpp)
 target_link_libraries(orderbook_matching_engine_tests PRIVATE orderbook_matching_engine_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(orderbook_matching_engine_tests)
 
-add_executable(orderbook_matching_engine_benchmarks benchmarks/orderbook_matching_engine_benchmark.cpp)
+add_executable(orderbook_matching_engine_benchmarks orderbook_matching_engine_benchmark.cpp)
 target_link_libraries(orderbook_matching_engine_benchmarks PRIVATE orderbook_matching_engine_lib benchmark::benchmark)
 
 add_test(

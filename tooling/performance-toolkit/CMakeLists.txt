@@ -95,29 +95,29 @@ if(PERFORMANCE_TOOLKIT_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(performance_toolkit_lib
-  src/performance_toolkit.cpp
+  performance_toolkit.cpp
 )
 
 target_include_directories(performance_toolkit_lib
   PUBLIC
-    include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool
 )
 target_link_libraries(performance_toolkit_lib PUBLIC performance_toolkit_project_options)
 
-add_executable(performance_toolkit_app src/main.cpp)
+add_executable(performance_toolkit_app main.cpp)
 target_link_libraries(performance_toolkit_app PRIVATE performance_toolkit_lib)
 
 enable_testing()
 
-add_executable(performance_toolkit_tests tests/performance_toolkit_test.cpp)
+add_executable(performance_toolkit_tests performance_toolkit_test.cpp)
 target_link_libraries(performance_toolkit_tests PRIVATE performance_toolkit_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(performance_toolkit_tests)
 
-add_executable(performance_toolkit_benchmarks benchmarks/performance_toolkit_benchmark.cpp)
+add_executable(performance_toolkit_benchmarks performance_toolkit_benchmark.cpp)
 target_link_libraries(performance_toolkit_benchmarks PRIVATE performance_toolkit_lib benchmark::benchmark)
 
 add_test(

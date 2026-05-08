@@ -15,10 +15,8 @@ This module will evolve into a single-symbol continuous auction engine for a cen
 
 ## Implemented Layout
 
-- include/: public interfaces for order, level, event, and matching abstractions
-- src/: executable entry point and implementation units
-- tests/: GoogleTest-based unit and scenario coverage for matching behavior
-- benchmarks/: Google Benchmark entry points plus timeout-bounded smoke execution
+- module root: public headers, matching implementation, executable entry point, tests, and benchmark sources kept together for quick inspection
+- focus files: orderbook_matching_engine.hpp, orderbook_matching_engine.cpp, orderbook_matching_engine_test.cpp, and orderbook_matching_engine_benchmark.cpp
 
 ## Build
 

@@ -1,0 +1,76 @@
+CompileFlags:
+  Add:
+    - -xc++
+    - -std=c++20
+    - -Icore-exchange/account-clearing-system
+    - -Icore-exchange/orderbook-matching-engine
+    - -Icore-exchange/pre-trade-risk-engine
+    - -Icore-exchange/unified-access-gateway
+    - -Iinfrastructure/distributed-consistency
+    - -Iinfrastructure/lock-free-structures
+    - -Iinfrastructure/memory-pool
+    - -Iinfrastructure/market-data-push-system
+    - -Itooling/observability-stack
+    - -Itooling/performance-toolkit
+Diagnostics:
+  UnusedIncludes: None
+
+---
+If:
+  PathMatch: ^core-exchange/account-clearing-system/.*
+CompileFlags:
+  CompilationDatabase: build/core-exchange/account-clearing-system/debug
+
+---
+If:
+  PathMatch: ^core-exchange/orderbook-matching-engine/.*
+CompileFlags:
+  CompilationDatabase: build/core-exchange/orderbook-matching-engine/debug
+
+---
+If:
+  PathMatch: ^core-exchange/pre-trade-risk-engine/.*
+CompileFlags:
+  CompilationDatabase: build/core-exchange/pre-trade-risk-engine/debug
+
+---
+If:
+  PathMatch: ^core-exchange/unified-access-gateway/.*
+CompileFlags:
+  CompilationDatabase: build/core-exchange/unified-access-gateway/debug
+
+---
+If:
+  PathMatch: ^infrastructure/distributed-consistency/.*
+CompileFlags:
+  CompilationDatabase: build/infrastructure/distributed-consistency/debug
+
+---
+If:
+  PathMatch: ^infrastructure/lock-free-structures/.*
+CompileFlags:
+  CompilationDatabase: build/infrastructure/lock-free-structures/debug
+
+---
+If:
+  PathMatch: ^infrastructure/memory-pool/.*
+CompileFlags:
+  CompilationDatabase: build/infrastructure/memory-pool/debug
+
+---
+If:
+  PathMatch: ^infrastructure/market-data-push-system/.*
+CompileFlags:
+  CompilationDatabase: build/infrastructure/market-data-push-system/debug
+
+---
+If:
+  PathMatch: ^tooling/observability-stack/.*
+CompileFlags:
+  CompilationDatabase: build/tooling/observability-stack/debug
+
+---
+If:
+  PathMatch: ^tooling/performance-toolkit/.*
+CompileFlags:
+  CompilationDatabase: build/tooling/performance-toolkit/debug

@@ -95,29 +95,29 @@ if(PRE_TRADE_RISK_ENGINE_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(pre_trade_risk_engine_lib
-  src/pre_trade_risk_engine.cpp
+  pre_trade_risk_engine.cpp
 )
 
 target_include_directories(pre_trade_risk_engine_lib
   PUBLIC
-    include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/market-data-push-system/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/market-data-push-system
 )
 target_link_libraries(pre_trade_risk_engine_lib PUBLIC pre_trade_risk_engine_project_options)
 
-add_executable(pre_trade_risk_engine_app src/main.cpp)
+add_executable(pre_trade_risk_engine_app main.cpp)
 target_link_libraries(pre_trade_risk_engine_app PRIVATE pre_trade_risk_engine_lib)
 
 enable_testing()
 
-add_executable(pre_trade_risk_engine_tests tests/pre_trade_risk_engine_test.cpp)
+add_executable(pre_trade_risk_engine_tests pre_trade_risk_engine_test.cpp)
 target_link_libraries(pre_trade_risk_engine_tests PRIVATE pre_trade_risk_engine_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(pre_trade_risk_engine_tests)
 
-add_executable(pre_trade_risk_engine_benchmarks benchmarks/pre_trade_risk_engine_benchmark.cpp)
+add_executable(pre_trade_risk_engine_benchmarks pre_trade_risk_engine_benchmark.cpp)
 target_link_libraries(pre_trade_risk_engine_benchmarks PRIVATE pre_trade_risk_engine_lib benchmark::benchmark)
 
 add_test(

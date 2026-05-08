@@ -15,10 +15,8 @@ This module will become the consistency and transaction coordination toolkit for
 
 ## Implemented Layout
 
-- include/: saga, TCC wallet, and outbox interfaces
-- src/: executable entry point and implementation units
-- tests/: compensation, reservation, and outbox validation
-- benchmarks/: transaction and recovery throughput coverage
+- module root: saga, TCC, and outbox headers plus implementation, executable, test, and benchmark sources kept together for quick inspection
+- focus files: distributed_consistency.hpp, saga.hpp, tcc_wallet.hpp, outbox.hpp, distributed_consistency_test.cpp, and distributed_consistency_benchmark.cpp
 
 ## Build
 

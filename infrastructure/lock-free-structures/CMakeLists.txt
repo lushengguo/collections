@@ -96,24 +96,24 @@ if(LOCK_FREE_STRUCTURES_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(lock_free_structures_lib
-  src/lock_free_structures.cpp
+  lock_free_structures.cpp
 )
 
-target_include_directories(lock_free_structures_lib PUBLIC include)
+target_include_directories(lock_free_structures_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(lock_free_structures_lib PUBLIC lock_free_structures_project_options)
 
-add_executable(lock_free_structures_app src/main.cpp)
+add_executable(lock_free_structures_app main.cpp)
 target_link_libraries(lock_free_structures_app PRIVATE lock_free_structures_lib)
 
 enable_testing()
 
-add_executable(lock_free_structures_tests tests/lock_free_structures_test.cpp)
+add_executable(lock_free_structures_tests lock_free_structures_test.cpp)
 target_link_libraries(lock_free_structures_tests PRIVATE lock_free_structures_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(lock_free_structures_tests)
 
-add_executable(lock_free_structures_benchmarks benchmarks/lock_free_structures_benchmark.cpp)
+add_executable(lock_free_structures_benchmarks lock_free_structures_benchmark.cpp)
 target_link_libraries(lock_free_structures_benchmarks PRIVATE lock_free_structures_lib benchmark::benchmark)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

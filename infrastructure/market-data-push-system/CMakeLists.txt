@@ -95,24 +95,24 @@ if(MARKET_DATA_PUSH_SYSTEM_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(market_data_push_system_lib
-  src/market_data_push_system.cpp
+  market_data_push_system.cpp
 )
 
-target_include_directories(market_data_push_system_lib PUBLIC include)
+target_include_directories(market_data_push_system_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(market_data_push_system_lib PUBLIC market_data_push_system_project_options)
 
-add_executable(market_data_push_system_app src/main.cpp)
+add_executable(market_data_push_system_app main.cpp)
 target_link_libraries(market_data_push_system_app PRIVATE market_data_push_system_lib)
 
 enable_testing()
 
-add_executable(market_data_push_system_tests tests/market_data_push_system_test.cpp)
+add_executable(market_data_push_system_tests market_data_push_system_test.cpp)
 target_link_libraries(market_data_push_system_tests PRIVATE market_data_push_system_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(market_data_push_system_tests)
 
-add_executable(market_data_push_system_benchmarks benchmarks/market_data_push_system_benchmark.cpp)
+add_executable(market_data_push_system_benchmarks market_data_push_system_benchmark.cpp)
 target_link_libraries(market_data_push_system_benchmarks PRIVATE market_data_push_system_lib benchmark::benchmark)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

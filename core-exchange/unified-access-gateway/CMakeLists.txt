@@ -95,29 +95,29 @@ if(UNIFIED_ACCESS_GATEWAY_ENABLE_CLANG_TIDY)
 endif()
 
 add_library(unified_access_gateway_lib
-  src/unified_access_gateway.cpp
+  unified_access_gateway.cpp
 )
 
 target_include_directories(unified_access_gateway_lib
   PUBLIC
-    include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/market-data-push-system/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/lock-free-structures
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/market-data-push-system
 )
 target_link_libraries(unified_access_gateway_lib PUBLIC unified_access_gateway_project_options)
 
-add_executable(unified_access_gateway_app src/main.cpp)
+add_executable(unified_access_gateway_app main.cpp)
 target_link_libraries(unified_access_gateway_app PRIVATE unified_access_gateway_lib)
 
 enable_testing()
 
-add_executable(unified_access_gateway_tests tests/unified_access_gateway_test.cpp)
+add_executable(unified_access_gateway_tests unified_access_gateway_test.cpp)
 target_link_libraries(unified_access_gateway_tests PRIVATE unified_access_gateway_lib GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(unified_access_gateway_tests)
 
-add_executable(unified_access_gateway_benchmarks benchmarks/unified_access_gateway_benchmark.cpp)
+add_executable(unified_access_gateway_benchmarks unified_access_gateway_benchmark.cpp)
 target_link_libraries(unified_access_gateway_benchmarks PRIVATE unified_access_gateway_lib benchmark::benchmark)
 
 add_test(

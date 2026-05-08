@@ -15,10 +15,8 @@ This module will become a high-performance allocator and object reuse layer for 
 
 ## Implemented Layout
 
-- include/: fixed-block allocator and object-pool interfaces
-- src/: executable entry point and implementation units
-- tests/: correctness, reuse, and lifecycle validation
-- benchmarks/: allocation throughput coverage
+- module root: allocator headers, implementation units, executable entry point, tests, and benchmark sources kept together for quick inspection
+- focus files: memory_pool.hpp, fixed_block_pool.hpp, object_pool.hpp, memory_pool_test.cpp, and memory_pool_benchmark.cpp
 
 ## Build
 
