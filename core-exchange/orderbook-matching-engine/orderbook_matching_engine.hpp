@@ -7,10 +7,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "spsc_ring_queue.hpp"
 #include "broadcaster.hpp"
 #include "depth_book.hpp"
 #include "object_pool.hpp"
+#include "spsc_ring_queue.hpp"
 
 namespace orderbook_matching_engine
 {

@@ -6,8 +6,7 @@ namespace
 {
 
 unified_access_gateway::GatewayRequest make_request(std::string request_id, std::string user_id, std::string api_key,
-                                                    std::string secret, std::string payload,
-                                                    std::int64_t timestamp_ms)
+                                                    std::string secret, std::string payload, std::int64_t timestamp_ms)
 {
     const auto signature = unified_access_gateway::expected_signature(api_key, secret, request_id);
     return {
@@ -24,17 +23,16 @@ unified_access_gateway::GatewayRequest make_request(std::string request_id, std:
 
 void configure_pipeline(exchange_pipeline::ExchangePipeline &pipeline)
 {
-    pipeline.configure_market(
-        99.0, 101.0, {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0},
-        {
-            .symbol = "BTCUSDT",
-            .max_order_quantity = 10.0,
-            .max_order_notional = 1000000.0,
-            .max_price_deviation_ratio = 0.05,
-            .max_requests_per_window = 10000,
-            .rate_limit_window_ms = 1000,
-            .enable_self_trade_prevention = true,
-        });
+    pipeline.configure_market(99.0, 101.0, {.maker_fee_bps = 2.0, .taker_fee_bps = 5.0},
+                              {
+                                  .symbol = "BTCUSDT",
+                                  .max_order_quantity = 10.0,
+                                  .max_order_notional = 1000000.0,
+                                  .max_price_deviation_ratio = 0.05,
+                                  .max_requests_per_window = 10000,
+                                  .rate_limit_window_ms = 1000,
+                                  .enable_self_trade_prevention = true,
+                              });
     pipeline.register_user("seller-key", "seller-secret", "maker",
                            {.available_quote = 0.0, .available_base = 1.0, .base_cost = 80.0});
     pipeline.register_user("buyer-key", "buyer-secret", "taker", {.available_quote = 1000.0});
@@ -49,8 +47,7 @@ TEST(ExchangePipelineTest, GatewayRiskMatchingClearingAndMarketDataFormHappyPath
 
     const auto maker = pipeline.submit(make_request(
         "req-maker", "maker", "seller-key", "seller-secret",
-        "order_id=ask-1;symbol=BTCUSDT;side=sell;type=limit;tif=gtc;price=100.0;quantity=1.0;source_ip=10.0.0.1",
-        1));
+        "order_id=ask-1;symbol=BTCUSDT;side=sell;type=limit;tif=gtc;price=100.0;quantity=1.0;source_ip=10.0.0.1", 1));
     ASSERT_TRUE(maker.route_result.accepted);
     ASSERT_TRUE(maker.risk_decision.accepted);
     ASSERT_TRUE(maker.match_result.accepted);
@@ -58,8 +55,7 @@ TEST(ExchangePipelineTest, GatewayRiskMatchingClearingAndMarketDataFormHappyPath
 
     const auto taker = pipeline.submit(make_request(
         "req-taker", "taker", "buyer-key", "buyer-secret",
-        "order_id=buy-1;symbol=BTCUSDT;side=buy;type=limit;tif=ioc;price=100.0;quantity=1.0;source_ip=10.0.0.2",
-        2));
+        "order_id=buy-1;symbol=BTCUSDT;side=buy;type=limit;tif=ioc;price=100.0;quantity=1.0;source_ip=10.0.0.2", 2));
     ASSERT_TRUE(taker.route_result.accepted);
     ASSERT_TRUE(taker.risk_decision.accepted);
     ASSERT_TRUE(taker.match_result.accepted);
@@ -105,8 +101,7 @@ TEST(ExchangePipelineTest, RiskRejectStopsBeforeFundsAreReservedOrMatched)
 
     const auto rejected = pipeline.submit(make_request(
         "req-bad", "taker", "buyer-key", "buyer-secret",
-        "order_id=buy-bad;symbol=BTCUSDT;side=buy;type=limit;tif=gtc;price=200.0;quantity=1.0;source_ip=10.0.0.2",
-        3));
+        "order_id=buy-bad;symbol=BTCUSDT;side=buy;type=limit;tif=gtc;price=200.0;quantity=1.0;source_ip=10.0.0.2", 3));
 
     ASSERT_TRUE(rejected.route_result.accepted);
     EXPECT_FALSE(rejected.risk_decision.accepted);

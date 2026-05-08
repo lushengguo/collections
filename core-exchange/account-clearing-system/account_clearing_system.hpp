@@ -8,8 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "outbox.hpp"
 #include "object_pool.hpp"
+#include "outbox.hpp"
 
 namespace account_clearing_system
 {

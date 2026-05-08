@@ -196,8 +196,8 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
     {
         workflow.risk_decision.accepted = false;
         workflow.risk_decision.reject_reason = parsed->matching_side == orderbook_matching_engine::Side::kBuy
-                                                  ? pre_trade_risk_engine::RejectReason::kInsufficientBalance
-                                                  : pre_trade_risk_engine::RejectReason::kInsufficientPosition;
+                                                   ? pre_trade_risk_engine::RejectReason::kInsufficientBalance
+                                                   : pre_trade_risk_engine::RejectReason::kInsufficientPosition;
         workflow.risk_decision.rule_name = "clearing_hold_reservation";
         return workflow;
     }
@@ -451,15 +451,14 @@ void ExchangePipeline::sync_resting_orders()
         {
             continue;
         }
-        risk_.track_resting_order(symbol_,
-                                  {
-                                      .user_id = registry_it->second.user_id,
-                                      .side = registry_it->second.side == orderbook_matching_engine::Side::kBuy
-                                                  ? pre_trade_risk_engine::Side::kBuy
-                                                  : pre_trade_risk_engine::Side::kSell,
-                                      .price = resting.price,
-                                      .quantity = resting.open_quantity,
-                                  });
+        risk_.track_resting_order(symbol_, {
+                                               .user_id = registry_it->second.user_id,
+                                               .side = registry_it->second.side == orderbook_matching_engine::Side::kBuy
+                                                           ? pre_trade_risk_engine::Side::kBuy
+                                                           : pre_trade_risk_engine::Side::kSell,
+                                               .price = resting.price,
+                                               .quantity = resting.open_quantity,
+                                           });
         resting_users_.insert(registry_it->second.user_id);
     }
 }

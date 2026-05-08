@@ -38,17 +38,16 @@ class ExchangePipeline
     void configure_market(double best_bid, double best_ask, account_clearing_system::FeeSchedule fee_schedule,
                           pre_trade_risk_engine::MarketRiskConfig risk_config);
     void register_user(std::string api_key, std::string secret, std::string user_id,
-                       account_clearing_system::AccountSnapshot account_snapshot,
-                       std::size_t max_requests = 100000, std::int64_t window_ms = 1000);
+                       account_clearing_system::AccountSnapshot account_snapshot, std::size_t max_requests = 100000,
+                       std::int64_t window_ms = 1000);
 
     [[nodiscard]] WorkflowResult submit(const unified_access_gateway::GatewayRequest &request);
     [[nodiscard]] std::optional<account_clearing_system::AccountSnapshot> account(std::string_view user_id) const;
     [[nodiscard]] std::vector<distributed_consistency::OutboxMessage> pending_outbox(std::size_t max_items) const;
     [[nodiscard]] std::vector<pre_trade_risk_engine::RiskDecision> audit_log() const;
     [[nodiscard]] std::vector<market_data_push_system::BroadcastMessage> replay_market_data(std::string_view topic,
-                                                                                             std::uint64_t after) const;
-    [[nodiscard]] std::vector<market_data_push_system::BroadcastMessage> replay_route_events(
-        std::uint64_t after) const;
+                                                                                            std::uint64_t after) const;
+    [[nodiscard]] std::vector<market_data_push_system::BroadcastMessage> replay_route_events(std::uint64_t after) const;
 
   private:
     struct ParsedOrder

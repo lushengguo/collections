@@ -8,8 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "spsc_ring_queue.hpp"
 #include "object_pool.hpp"
+#include "spsc_ring_queue.hpp"
 
 namespace observability_stack
 {

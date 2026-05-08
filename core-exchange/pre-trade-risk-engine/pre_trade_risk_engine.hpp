@@ -8,8 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "spsc_ring_queue.hpp"
 #include "depth_book.hpp"
+#include "spsc_ring_queue.hpp"
 
 namespace pre_trade_risk_engine
 {

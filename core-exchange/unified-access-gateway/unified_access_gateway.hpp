@@ -8,8 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "spsc_ring_queue.hpp"
 #include "broadcaster.hpp"
+#include "spsc_ring_queue.hpp"
 
 namespace unified_access_gateway
 {

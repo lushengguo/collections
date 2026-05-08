@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "spsc_ring_queue.hpp"
 #include "object_pool.hpp"
+#include "spsc_ring_queue.hpp"
 
 namespace performance_toolkit
 {
