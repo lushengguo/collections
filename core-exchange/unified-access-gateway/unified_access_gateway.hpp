@@ -42,33 +42,53 @@ enum class RejectReason
 
 struct GatewayRequest
 {
+    // Client request id used for signatures and tracing.
     std::string request_id;
+    // Claimed user id attached to the request.
     std::string user_id;
+    // Public credential id used to look up the secret.
     std::string api_key;
+    // Signature generated over the request envelope.
     std::string signature;
+    // HTTP/FIX/WebSocket route path used for backend matching.
     std::string path;
+    // Serialized business payload forwarded downstream.
     std::string payload;
+    // Protocol the request entered through.
     Protocol protocol{Protocol::kRest};
+    // Client timestamp used for freshness and rate-limit windows.
     std::int64_t timestamp_ms{0};
 };
 
 struct ForwardedRequest
 {
+    // Original request id preserved across the pipeline.
     std::string request_id;
+    // Authenticated user id to attribute the request to.
     std::string user_id;
+    // Routed path that matched a backend.
     std::string path;
+    // Payload forwarded after gateway checks succeed.
     std::string payload;
+    // Backend selected by route matching.
     Backend backend{Backend::kRisk};
+    // Original ingress protocol.
     Protocol protocol{Protocol::kRest};
+    // Original client timestamp.
     std::int64_t timestamp_ms{0};
 };
 
 struct RouteResult
 {
+    // Whether the request passed gateway checks and was enqueued.
     bool accepted{false};
+    // Structured gateway rejection reason when accepted is false.
     RejectReason reject_reason{RejectReason::kNone};
+    // Backend selected for forwarding.
     Backend backend{Backend::kRisk};
+    // Human-readable route name for observability.
     std::string route_name;
+    // Approximate queue depth after enqueueing the request.
     std::size_t queued_requests{0};
 };
 
@@ -102,28 +122,39 @@ class UnifiedAccessGateway
   private:
     struct Credential
     {
+        // Secret used to verify request signatures for this api key.
         std::string secret;
+        // User that owns the credential.
         std::string user_id;
     };
 
     struct RouteConfig
     {
+        // Path prefix matched against incoming request paths.
         std::string path_prefix;
+        // Backend chosen when this route matches.
         Backend backend{Backend::kRisk};
+        // Friendly route label used in route events.
         std::string route_name;
     };
 
     struct RateLimit
     {
+        // Max requests allowed inside the window.
         std::size_t max_requests{0};
+        // Length of the rate-limit window in milliseconds.
         std::int64_t window_ms{0};
     };
 
     struct SessionState
     {
+        // Protocol associated with the live session.
         Protocol protocol{Protocol::kRest};
+        // Max heartbeat gap before the session is considered stale.
         std::int64_t heartbeat_timeout_ms{0};
+        // Last heartbeat observed for this session.
         std::int64_t last_heartbeat_ms{0};
+        // Whether the session is still considered live.
         bool live{true};
     };
 

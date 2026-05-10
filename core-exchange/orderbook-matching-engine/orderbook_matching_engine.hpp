@@ -57,44 +57,67 @@ enum class RejectReason
 
 struct OrderRequest
 {
+    // Client-visible order id that must be unique among live orders.
     std::string order_id;
+    // Buy or sell intent.
     Side side = Side::kBuy;
+    // Limit or market execution style.
     OrderType type = OrderType::kLimit;
+    // Resting policy such as GTC, IOC, FOK, or GTX.
     TimeInForce tif = TimeInForce::kGtc;
+    // Limit price; ignored for market orders.
     double price = 0.0;
+    // Requested base quantity.
     double quantity = 0.0;
+    // Monotonic time used for price-time priority and event ordering.
     std::uint64_t timestamp = 0;
 };
 
 struct Trade
 {
+    // Resting order that provided liquidity.
     std::string maker_order_id;
+    // Aggressive order that consumed liquidity.
     std::string taker_order_id;
+    // Execution price chosen by the matching engine.
     double price = 0.0;
+    // Executed base quantity.
     double quantity = 0.0;
 };
 
 struct MatchResult
 {
+    // Whether the order was accepted into the matching workflow at all.
     bool accepted = false;
+    // Final lifecycle state after matching completes.
     OrderStatus final_status = OrderStatus::kRejected;
+    // Structured rejection reason when accepted is false.
     RejectReason reject_reason = RejectReason::kNone;
+    // Total quantity executed across all fills.
     double executed_quantity = 0.0;
+    // Quantity left open after matching and TIF handling.
     double remaining_quantity = 0.0;
+    // Individual trades generated while matching this order.
     std::vector<Trade> trades;
 };
 
 struct RestingOrderView
 {
+    // Order id still resting on the book.
     std::string order_id;
+    // Side of the resting liquidity.
     Side side = Side::kBuy;
+    // Price level where the order is queued.
     double price = 0.0;
+    // Remaining open quantity still available for matching.
     double open_quantity = 0.0;
 };
 
 struct EngineEvent
 {
+    // Logical stream name such as orders, trades, or depth.
     std::string topic;
+    // Serialized payload emitted for downstream consumers.
     std::string payload;
 };
 

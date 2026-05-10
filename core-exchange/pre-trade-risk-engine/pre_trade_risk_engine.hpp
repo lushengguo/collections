@@ -42,52 +42,83 @@ enum class RejectReason
 
 struct OrderRequest
 {
+    // Client-visible order id under evaluation.
     std::string order_id;
+    // User placing the order.
     std::string user_id;
+    // Trading pair the order targets.
     std::string symbol;
+    // Source IP used for per-user/per-IP throttling.
     std::string source_ip;
+    // Buy or sell intent.
     Side side{Side::kBuy};
+    // Limit or market style.
     OrderType type{OrderType::kLimit};
+    // Candidate limit price.
     double price{0.0};
+    // Requested base quantity.
     double quantity{0.0};
+    // Event time used for rate limiting and audit history.
     std::int64_t timestamp_ms{0};
 };
 
 struct MarketRiskConfig
 {
+    // Trading pair this rule set applies to.
     std::string symbol;
+    // Hard cap on per-order base quantity.
     double max_order_quantity{0.0};
+    // Hard cap on per-order quote notional.
     double max_order_notional{0.0};
+    // Max allowed relative deviation from current reference price.
     double max_price_deviation_ratio{0.0};
+    // Max requests allowed inside one rate-limit window.
     std::size_t max_requests_per_window{0};
+    // Window length for per-user/per-IP throttling.
     std::int64_t rate_limit_window_ms{0};
+    // Whether crossing against own resting liquidity should be blocked.
     bool enable_self_trade_prevention{true};
 };
 
 struct AccountRiskState
 {
+    // Spendable quote balance available to support buy orders.
     double quote_balance{0.0};
+    // Spendable base position available to support sell orders.
     double base_position{0.0};
 };
 
 struct RestingOrderView
 {
+    // Owner of the resting order.
     std::string user_id;
+    // Side of the resting liquidity.
     Side side{Side::kBuy};
+    // Price level of the resting order.
     double price{0.0};
+    // Remaining quantity still resting.
     double quantity{0.0};
 };
 
 struct RiskDecision
 {
+    // Whether the order passed all risk checks.
     bool accepted{false};
+    // Structured failure reason when accepted is false.
     RejectReason reject_reason{RejectReason::kNone};
+    // Name of the rule that accepted or rejected the request.
     std::string rule_name;
+    // Echoed order id for audit correlation.
     std::string order_id;
+    // Echoed user id for audit correlation.
     std::string user_id;
+    // Echoed symbol for audit correlation.
     std::string symbol;
+    // Price reference used for notional and price-band checks.
     double reference_price{0.0};
+    // Estimated quote notional evaluated by risk.
     double estimated_notional{0.0};
+    // Decision timestamp.
     std::int64_t timestamp_ms{0};
 };
 
@@ -120,9 +151,13 @@ class PreTradeRiskEngine
         {
         }
 
+        // Static risk rules configured for this symbol.
         MarketRiskConfig config;
+        // Lightweight depth view used to derive reference prices.
         market_data_push_system::DepthBook book;
+        // Cached top bid from the latest market update.
         std::optional<double> best_bid;
+        // Cached top ask from the latest market update.
         std::optional<double> best_ask;
     };
 

@@ -23,17 +23,25 @@ enum class HoldAsset
 
 struct AccountSnapshot
 {
+    // Quote asset immediately available for new buy-side reservations or withdrawals.
     double available_quote{0.0};
+    // Quote asset currently frozen by open orders or in-flight settlement.
     double frozen_quote{0.0};
+    // Base asset immediately available for new sell-side reservations or withdrawals.
     double available_base{0.0};
+    // Base asset currently frozen by open orders or in-flight settlement.
     double frozen_base{0.0};
+    // Book cost of the remaining base position, used to derive realized PnL when selling.
     double base_cost{0.0};
+    // Accumulated realized profit and loss after completed settlements.
     double realized_pnl{0.0};
 };
 
 struct FeeSchedule
 {
+    // Maker fee in basis points, applied to the passive side of a match.
     double maker_fee_bps{0.0};
+    // Taker fee in basis points, applied to the aggressive side of a match.
     double taker_fee_bps{0.0};
 };
 
@@ -57,6 +65,7 @@ enum class ClearingStatus
 
 struct ClearingOperationResult
 {
+    // Result of a freeze/release/outbox operation.
     ClearingStatus status{ClearingStatus::kApplied};
 
     [[nodiscard]] bool ok() const noexcept
@@ -67,24 +76,39 @@ struct ClearingOperationResult
 
 struct TradeFill
 {
+    // Stable id for the fill used for idempotent settlement.
     std::string trade_id;
+    // Trading pair this fill belongs to, for example BTCUSDT.
     std::string symbol;
+    // Buyer account that receives base and spends quote.
     std::string buyer_account_id;
+    // Seller account that receives quote and delivers base.
     std::string seller_account_id;
+    // Quote hold consumed on the buyer side of the fill.
     std::string buyer_hold_id;
+    // Base hold consumed on the seller side of the fill.
     std::string seller_hold_id;
+    // Execution price of this matched trade.
     double price{0.0};
+    // Executed base quantity.
     double quantity{0.0};
+    // Whether the buyer was the aggressive side, which decides maker/taker fees.
     bool buyer_is_taker{true};
+    // Event time used for journal and outbox records.
     std::int64_t timestamp_ms{0};
 };
 
 struct SettlementResult
 {
+    // Final settlement status for this fill.
     ClearingStatus status{ClearingStatus::kApplied};
+    // Gross quote notional equal to price * quantity.
     double notional{0.0};
+    // Fee charged to the buyer leg.
     double buyer_fee{0.0};
+    // Fee charged to the seller leg.
     double seller_fee{0.0};
+    // Realized PnL crystallized on the seller side.
     double seller_realized_pnl{0.0};
 
     [[nodiscard]] bool ok() const noexcept
@@ -100,15 +124,25 @@ struct SettlementResult
 
 struct JournalEntry
 {
+    // Account whose balances were mutated by this ledger event.
     std::string account_id;
+    // Business event id, usually a hold id or trade id.
     std::string event_id;
+    // Human-readable operation name such as freeze_quote or spot_trade_sell.
     std::string operation;
+    // Delta applied to spendable quote balance.
     double delta_available_quote{0.0};
+    // Delta applied to frozen quote balance.
     double delta_frozen_quote{0.0};
+    // Delta applied to spendable base balance.
     double delta_available_base{0.0};
+    // Delta applied to frozen base balance.
     double delta_frozen_base{0.0};
+    // Delta applied to remaining base cost basis.
     double delta_base_cost{0.0};
+    // Delta applied to realized PnL.
     double delta_realized_pnl{0.0};
+    // Ledger event timestamp.
     std::int64_t timestamp_ms{0};
 };
 
@@ -145,8 +179,11 @@ class AccountClearingSystem
   private:
     struct HoldRecord
     {
+        // Account that owns this hold.
         std::string account_id;
+        // Which asset was reserved: quote for buys, base for sells.
         HoldAsset asset{HoldAsset::kQuote};
+        // Remaining reserved amount that can still be consumed or released.
         double amount{0.0};
     };
 
