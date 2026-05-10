@@ -9,6 +9,17 @@ namespace account_clearing_system
 namespace
 {
 
+struct SettlementAmounts
+{
+    double notional{0.0};
+    double buyer_fee{0.0};
+    double seller_fee{0.0};
+    double buyer_consumed_quote{0.0};
+    double seller_consumed_base{0.0};
+    double seller_cost_released{0.0};
+    double seller_realized_pnl{0.0};
+};
+
 constexpr double kBalanceEpsilon = 1e-9;
 
 double fee_amount(double notional, double fee_bps)
@@ -19,6 +30,30 @@ double fee_amount(double notional, double fee_bps)
 bool is_zero(double value)
 {
     return value >= -kBalanceEpsilon && value <= kBalanceEpsilon;
+}
+
+SettlementAmounts calculate_settlement_amounts(const TradeFill &fill, const FeeSchedule &fee_schedule,
+                                               const AccountSnapshot &seller)
+{
+    const double notional = fill.price * fill.quantity;
+    const double buyer_fee =
+        fee_amount(notional, fill.buyer_is_taker ? fee_schedule.taker_fee_bps : fee_schedule.maker_fee_bps);
+    const double seller_fee =
+        fee_amount(notional, fill.buyer_is_taker ? fee_schedule.maker_fee_bps : fee_schedule.taker_fee_bps);
+    const double seller_total_base_before = seller.available_base + seller.frozen_base;
+    const double seller_cost_per_unit =
+        seller_total_base_before > 0.0 ? seller.base_cost / seller_total_base_before : 0.0;
+    const double seller_cost_released = seller_cost_per_unit * fill.quantity;
+
+    return SettlementAmounts{
+        .notional = notional,
+        .buyer_fee = buyer_fee,
+        .seller_fee = seller_fee,
+        .buyer_consumed_quote = notional + buyer_fee,
+        .seller_consumed_base = fill.quantity,
+        .seller_cost_released = seller_cost_released,
+        .seller_realized_pnl = notional - seller_fee - seller_cost_released,
+    };
 }
 
 } // namespace
@@ -144,24 +179,67 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
 
     auto buyer_it = accounts_.find(fill.buyer_account_id);
     auto seller_it = accounts_.find(fill.seller_account_id);
-    if (buyer_it == accounts_.end() || seller_it == accounts_.end() || fill.price <= 0.0 || fill.quantity <= 0.0 ||
-        fill.timestamp_ms <= 0)
+    if (buyer_it == accounts_.end() || seller_it == accounts_.end() || !has_valid_trade_fill(fill))
     {
         return SettlementResult{.status = buyer_it == accounts_.end() || seller_it == accounts_.end()
                                               ? ClearingStatus::kAccountNotFound
                                               : ClearingStatus::kInvalidInput};
     }
 
-    const auto notional = fill.price * fill.quantity;
-    const auto buyer_fee =
-        fee_amount(notional, fill.buyer_is_taker ? fee_schedule.taker_fee_bps : fee_schedule.maker_fee_bps);
-    const auto seller_fee =
-        fee_amount(notional, fill.buyer_is_taker ? fee_schedule.maker_fee_bps : fee_schedule.taker_fee_bps);
-    const auto buyer_consumed_quote = notional + buyer_fee;
-    const auto seller_consumed_base = fill.quantity;
-
     auto &buyer = buyer_it->second;
     auto &seller = seller_it->second;
+    const SettlementAmounts amounts = calculate_settlement_amounts(fill, fee_schedule, seller);
+
+    if (const auto balance_check =
+            validate_balance_coverage(buyer, seller, amounts.buyer_consumed_quote, amounts.seller_consumed_base);
+        !balance_check.ok())
+    {
+        return balance_check;
+    }
+
+    if (const auto hold_check =
+            validate_hold_coverage(fill, amounts.buyer_consumed_quote, amounts.seller_consumed_base);
+        !hold_check.ok())
+    {
+        return hold_check;
+    }
+
+    buyer.frozen_quote -= amounts.buyer_consumed_quote;
+    buyer.available_base += fill.quantity;
+    buyer.base_cost += amounts.buyer_consumed_quote;
+
+    seller.frozen_base -= amounts.seller_consumed_base;
+    seller.available_quote += amounts.notional - amounts.seller_fee;
+    seller.base_cost -= amounts.seller_cost_released;
+    seller.realized_pnl += amounts.seller_realized_pnl;
+
+    consume_hold_amount(fill.buyer_hold_id, amounts.buyer_consumed_quote);
+    consume_hold_amount(fill.seller_hold_id, amounts.seller_consumed_base);
+
+    append_settlement_journal(fill, amounts.notional, amounts.buyer_fee, amounts.seller_fee,
+                              amounts.seller_cost_released, amounts.seller_realized_pnl);
+    enqueue_settlement_outbox(fill);
+    settled_trade_ids_.insert(fill.trade_id);
+
+    return SettlementResult{
+        .status = ClearingStatus::kApplied,
+        .notional = amounts.notional,
+        .buyer_fee = amounts.buyer_fee,
+        .seller_fee = amounts.seller_fee,
+        .seller_realized_pnl = amounts.seller_realized_pnl,
+    };
+}
+
+bool AccountClearingSystem::has_valid_trade_fill(const TradeFill &fill) noexcept
+{
+    return fill.price > 0.0 && fill.quantity > 0.0 && fill.timestamp_ms > 0;
+}
+
+SettlementResult AccountClearingSystem::validate_balance_coverage(const AccountSnapshot &buyer,
+                                                                  const AccountSnapshot &seller,
+                                                                  double buyer_consumed_quote,
+                                                                  double seller_consumed_base) const
+{
     if (buyer.frozen_quote < buyer_consumed_quote)
     {
         return SettlementResult{.status = ClearingStatus::kBuyerFrozenQuoteInsufficient};
@@ -170,19 +248,25 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
     {
         return SettlementResult{.status = ClearingStatus::kSellerFrozenBaseInsufficient};
     }
+    return {};
+}
 
+SettlementResult AccountClearingSystem::validate_hold_coverage(const TradeFill &fill, double buyer_consumed_quote,
+                                                               double seller_consumed_base) const
+{
     if (!fill.buyer_hold_id.empty())
     {
-        auto buyer_hold_it = holds_.find(fill.buyer_hold_id);
+        const auto buyer_hold_it = holds_.find(fill.buyer_hold_id);
         if (buyer_hold_it == holds_.end() || buyer_hold_it->second.account_id != fill.buyer_account_id ||
             buyer_hold_it->second.asset != HoldAsset::kQuote || buyer_hold_it->second.amount < buyer_consumed_quote)
         {
             return SettlementResult{.status = ClearingStatus::kBuyerHoldInsufficient};
         }
     }
+
     if (!fill.seller_hold_id.empty())
     {
-        auto seller_hold_it = holds_.find(fill.seller_hold_id);
+        const auto seller_hold_it = holds_.find(fill.seller_hold_id);
         if (seller_hold_it == holds_.end() || seller_hold_it->second.account_id != fill.seller_account_id ||
             seller_hold_it->second.asset != HoldAsset::kBase || seller_hold_it->second.amount < seller_consumed_base)
         {
@@ -190,60 +274,42 @@ SettlementResult AccountClearingSystem::settle_spot_trade(const TradeFill &fill,
         }
     }
 
-    const auto seller_total_base_before = seller.available_base + seller.frozen_base;
-    const auto seller_cost_per_unit =
-        seller_total_base_before > 0.0 ? seller.base_cost / seller_total_base_before : 0.0;
-    const auto seller_cost_released = seller_cost_per_unit * fill.quantity;
-    const auto seller_realized_pnl = notional - seller_fee - seller_cost_released;
+    return {};
+}
 
-    buyer.frozen_quote -= buyer_consumed_quote;
-    buyer.available_base += fill.quantity;
-    buyer.base_cost += buyer_consumed_quote;
-
-    seller.frozen_base -= seller_consumed_base;
-    seller.available_quote += notional - seller_fee;
-    seller.base_cost -= seller_cost_released;
-    seller.realized_pnl += seller_realized_pnl;
-
-    if (!fill.buyer_hold_id.empty())
+void AccountClearingSystem::consume_hold_amount(std::string_view hold_id, double amount)
+{
+    if (hold_id.empty())
     {
-        auto buyer_hold_it = holds_.find(fill.buyer_hold_id);
-        buyer_hold_it->second.amount -= buyer_consumed_quote;
-        if (is_zero(buyer_hold_it->second.amount))
-        {
-            holds_.erase(buyer_hold_it);
-        }
-    }
-    if (!fill.seller_hold_id.empty())
-    {
-        auto seller_hold_it = holds_.find(fill.seller_hold_id);
-        seller_hold_it->second.amount -= seller_consumed_base;
-        if (is_zero(seller_hold_it->second.amount))
-        {
-            holds_.erase(seller_hold_it);
-        }
+        return;
     }
 
+    auto hold_it = holds_.find(std::string(hold_id));
+    hold_it->second.amount -= amount;
+    if (is_zero(hold_it->second.amount))
+    {
+        holds_.erase(hold_it);
+    }
+}
+
+void AccountClearingSystem::append_settlement_journal(const TradeFill &fill, double notional, double buyer_fee,
+                                                      double seller_fee, double seller_cost_released,
+                                                      double seller_realized_pnl)
+{
     append_journal(fill.buyer_account_id, fill.trade_id, "spot_trade_buy", 0.0, -(notional + buyer_fee), fill.quantity,
                    0.0, notional + buyer_fee, 0.0, fill.timestamp_ms);
     append_journal(fill.seller_account_id, fill.trade_id, "spot_trade_sell", notional - seller_fee, 0.0, 0.0,
                    -fill.quantity, -seller_cost_released, seller_realized_pnl, fill.timestamp_ms);
+}
 
+void AccountClearingSystem::enqueue_settlement_outbox(const TradeFill &fill)
+{
     outbox_.append({
         .id = fill.trade_id,
         .topic = "clearing.settlement",
         .payload = fill.symbol + ":" + fill.buyer_account_id + ":" + fill.seller_account_id,
         .state = distributed_consistency::OutboxState::kPending,
     });
-    settled_trade_ids_.insert(fill.trade_id);
-
-    return SettlementResult{
-        .status = ClearingStatus::kApplied,
-        .notional = notional,
-        .buyer_fee = buyer_fee,
-        .seller_fee = seller_fee,
-        .seller_realized_pnl = seller_realized_pnl,
-    };
 }
 
 std::optional<AccountSnapshot> AccountClearingSystem::account(std::string_view account_id) const

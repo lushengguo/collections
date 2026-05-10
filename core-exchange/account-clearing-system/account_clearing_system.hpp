@@ -191,6 +191,16 @@ class AccountClearingSystem
                         double delta_available_quote, double delta_frozen_quote, double delta_available_base,
                         double delta_frozen_base, double delta_base_cost, double delta_realized_pnl,
                         std::int64_t timestamp_ms);
+    [[nodiscard]] static bool has_valid_trade_fill(const TradeFill &fill) noexcept;
+    [[nodiscard]] SettlementResult validate_balance_coverage(const AccountSnapshot &buyer,
+                                                             const AccountSnapshot &seller, double buyer_consumed_quote,
+                                                             double seller_consumed_base) const;
+    [[nodiscard]] SettlementResult validate_hold_coverage(const TradeFill &fill, double buyer_consumed_quote,
+                                                          double seller_consumed_base) const;
+    void consume_hold_amount(std::string_view hold_id, double amount);
+    void append_settlement_journal(const TradeFill &fill, double notional, double buyer_fee, double seller_fee,
+                                   double seller_cost_released, double seller_realized_pnl);
+    void enqueue_settlement_outbox(const TradeFill &fill);
 
     std::unordered_map<std::string, AccountSnapshot> accounts_;
     std::unordered_map<std::string, HoldRecord> holds_;

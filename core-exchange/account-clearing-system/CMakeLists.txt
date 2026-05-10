@@ -16,24 +16,29 @@ option(ACCOUNT_CLEARING_SYSTEM_WARNINGS_AS_ERRORS "Treat compiler warnings as er
 option(ACCOUNT_CLEARING_SYSTEM_ENABLE_CLANG_TIDY "Enable clang-tidy when available" ON)
 option(ACCOUNT_CLEARING_SYSTEM_ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU tuning in Release" ON)
 
-include(FetchContent)
 include(CheckIPOSupported)
 
-set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+if(PROJECT_IS_TOP_LEVEL)
+  include(FetchContent)
 
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
-)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 
-FetchContent_Declare(
-  googlebenchmark
-  URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
-)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
+  )
 
-FetchContent_MakeAvailable(googletest googlebenchmark)
+  FetchContent_Declare(
+    googlebenchmark
+    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
+  )
+
+  FetchContent_MakeAvailable(googletest googlebenchmark)
+elseif(NOT TARGET GTest::gtest_main OR NOT TARGET benchmark::benchmark)
+  message(FATAL_ERROR "account_clearing_system requires shared googletest and googlebenchmark targets when added to the workspace")
+endif()
 
 add_library(account_clearing_system_project_options INTERFACE)
 target_compile_features(account_clearing_system_project_options INTERFACE cxx_std_20)
@@ -126,18 +131,20 @@ add_test(
 )
 set_tests_properties(account_clearing_system_benchmark_smoke PROPERTIES TIMEOUT 20)
 
-add_custom_target(
-  run_benchmark_smoke
-  COMMAND ${CMAKE_CTEST_COMMAND} -R account_clearing_system_benchmark_smoke --output-on-failure
-  DEPENDS account_clearing_system_benchmarks
-  USES_TERMINAL
-)
-
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
+if(PROJECT_IS_TOP_LEVEL)
   add_custom_target(
-    run_benchmarks
-    COMMAND account_clearing_system_benchmarks --benchmark_min_time=0.1s
+    run_benchmark_smoke
+    COMMAND ${CMAKE_CTEST_COMMAND} -R account_clearing_system_benchmark_smoke --output-on-failure
     DEPENDS account_clearing_system_benchmarks
     USES_TERMINAL
   )
+
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_custom_target(
+      run_benchmarks
+      COMMAND account_clearing_system_benchmarks --benchmark_min_time=0.1s
+      DEPENDS account_clearing_system_benchmarks
+      USES_TERMINAL
+    )
+  endif()
 endif()

@@ -16,24 +16,29 @@ option(EXCHANGE_PIPELINE_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" 
 option(EXCHANGE_PIPELINE_ENABLE_CLANG_TIDY "Enable clang-tidy when available" ON)
 option(EXCHANGE_PIPELINE_ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU tuning in Release" ON)
 
-include(FetchContent)
 include(CheckIPOSupported)
 
-set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+if(PROJECT_IS_TOP_LEVEL)
+  include(FetchContent)
 
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
-)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 
-FetchContent_Declare(
-  googlebenchmark
-  URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
-)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
+  )
 
-FetchContent_MakeAvailable(googletest googlebenchmark)
+  FetchContent_Declare(
+    googlebenchmark
+    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
+  )
+
+  FetchContent_MakeAvailable(googletest googlebenchmark)
+elseif(NOT TARGET GTest::gtest_main OR NOT TARGET benchmark::benchmark)
+  message(FATAL_ERROR "exchange_pipeline requires shared googletest and googlebenchmark targets when added to the workspace")
+endif()
 
 add_library(exchange_pipeline_project_options INTERFACE)
 target_compile_features(exchange_pipeline_project_options INTERFACE cxx_std_20)
@@ -94,13 +99,7 @@ if(EXCHANGE_PIPELINE_ENABLE_CLANG_TIDY)
   endif()
 endif()
 
-add_library(exchange_pipeline_lib
-  exchange_pipeline.cpp
-  ../../core-exchange/unified-access-gateway/unified_access_gateway.cpp
-  ../../core-exchange/pre-trade-risk-engine/pre_trade_risk_engine.cpp
-  ../../core-exchange/orderbook-matching-engine/orderbook_matching_engine.cpp
-  ../../core-exchange/account-clearing-system/account_clearing_system.cpp
-)
+add_library(exchange_pipeline_lib exchange_pipeline.cpp)
 
 target_include_directories(exchange_pipeline_lib
   PUBLIC
@@ -114,7 +113,27 @@ target_include_directories(exchange_pipeline_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/memory-pool
     ${CMAKE_CURRENT_SOURCE_DIR}/../../infrastructure/market-data-push-system
 )
-target_link_libraries(exchange_pipeline_lib PUBLIC exchange_pipeline_project_options)
+target_link_libraries(exchange_pipeline_lib
+  PUBLIC
+    exchange_pipeline_project_options
+)
+
+if(PROJECT_IS_TOP_LEVEL)
+  target_sources(exchange_pipeline_lib PRIVATE
+    ../../core-exchange/unified-access-gateway/unified_access_gateway.cpp
+    ../../core-exchange/pre-trade-risk-engine/pre_trade_risk_engine.cpp
+    ../../core-exchange/orderbook-matching-engine/orderbook_matching_engine.cpp
+    ../../core-exchange/account-clearing-system/account_clearing_system.cpp
+  )
+else()
+  target_link_libraries(exchange_pipeline_lib
+    PUBLIC
+      unified_access_gateway_lib
+      pre_trade_risk_engine_lib
+      orderbook_matching_engine_lib
+      account_clearing_system_lib
+  )
+endif()
 
 add_executable(exchange_pipeline_app main.cpp)
 target_link_libraries(exchange_pipeline_app PRIVATE exchange_pipeline_lib)
@@ -136,18 +155,20 @@ add_test(
 )
 set_tests_properties(exchange_pipeline_benchmark_smoke PROPERTIES TIMEOUT 20)
 
-add_custom_target(
-  run_benchmark_smoke
-  COMMAND ${CMAKE_CTEST_COMMAND} -R exchange_pipeline_benchmark_smoke --output-on-failure
-  DEPENDS exchange_pipeline_benchmarks
-  USES_TERMINAL
-)
-
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
+if(PROJECT_IS_TOP_LEVEL)
   add_custom_target(
-    run_benchmarks
-    COMMAND exchange_pipeline_benchmarks --benchmark_min_time=0.1s
+    run_benchmark_smoke
+    COMMAND ${CMAKE_CTEST_COMMAND} -R exchange_pipeline_benchmark_smoke --output-on-failure
     DEPENDS exchange_pipeline_benchmarks
     USES_TERMINAL
   )
+
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_custom_target(
+      run_benchmarks
+      COMMAND exchange_pipeline_benchmarks --benchmark_min_time=0.1s
+      DEPENDS exchange_pipeline_benchmarks
+      USES_TERMINAL
+    )
+  endif()
 endif()

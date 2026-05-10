@@ -16,24 +16,29 @@ option(LOCK_FREE_STRUCTURES_WARNINGS_AS_ERRORS "Treat compiler warnings as error
 option(LOCK_FREE_STRUCTURES_ENABLE_CLANG_TIDY "Enable clang-tidy when available" ON)
 option(LOCK_FREE_STRUCTURES_ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU tuning in Release" ON)
 
-include(FetchContent)
 include(CheckIPOSupported)
 
-set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+if(PROJECT_IS_TOP_LEVEL)
+  include(FetchContent)
 
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
-)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 
-FetchContent_Declare(
-  googlebenchmark
-  URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
-)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
+  )
 
-FetchContent_MakeAvailable(googletest googlebenchmark)
+  FetchContent_Declare(
+    googlebenchmark
+    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
+  )
+
+  FetchContent_MakeAvailable(googletest googlebenchmark)
+elseif(NOT TARGET GTest::gtest_main OR NOT TARGET benchmark::benchmark)
+  message(FATAL_ERROR "lock_free_structures requires shared googletest and googlebenchmark targets when added to the workspace")
+endif()
 
 add_library(lock_free_structures_project_options INTERFACE)
 target_compile_features(lock_free_structures_project_options INTERFACE cxx_std_20)
@@ -116,7 +121,7 @@ gtest_discover_tests(lock_free_structures_tests)
 add_executable(lock_free_structures_benchmarks lock_free_structures_benchmark.cpp)
 target_link_libraries(lock_free_structures_benchmarks PRIVATE lock_free_structures_lib benchmark::benchmark)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
+if(PROJECT_IS_TOP_LEVEL AND CMAKE_BUILD_TYPE STREQUAL "Release")
   add_custom_target(
     run_benchmarks
     COMMAND lock_free_structures_benchmarks --benchmark_min_time=0.1s

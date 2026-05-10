@@ -193,12 +193,69 @@ void ExchangePipeline::register_user(std::string_view api_key, std::string_view 
 WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayRequest &request)
 {
     WorkflowResult workflow;
+    const auto forwarded = route_request(request, workflow);
+    if (!forwarded.has_value())
+    {
+        return workflow;
+    }
+
+    const auto parsed = parse_forwarded_request(*forwarded, workflow);
+    if (!parsed.has_value())
+    {
+        return workflow;
+    }
+
+    if (!evaluate_risk_stage(*parsed, workflow))
+    {
+        return workflow;
+    }
+
+    const auto hold_id = reserve_order_hold(*parsed, workflow);
+    if (!hold_id.has_value())
+    {
+        return workflow;
+    }
+
+    track_managed_order(*parsed, *hold_id);
+
+    workflow.match_result = matching_.submit(to_matching_request(*parsed));
+    workflow.accepted = workflow.match_result.accepted;
+
+    if (!workflow.match_result.accepted && workflow.match_result.trades.empty())
+    {
+        if (!handle_rejected_match(*parsed, *hold_id, workflow))
+        {
+            return workflow;
+        }
+        return workflow;
+    }
+
+    if (!settle_trades(*parsed, workflow))
+    {
+        return workflow;
+    }
+
+    if (!release_closed_orders(*parsed, workflow))
+    {
+        return workflow;
+    }
+
+    sync_resting_orders();
+    refresh_market_reference();
+    workflow.status = WorkflowStatus::kCompleted;
+    populate_market_outputs(workflow);
+    return workflow;
+}
+
+std::optional<unified_access_gateway::ForwardedRequest> ExchangePipeline::route_request(
+    const unified_access_gateway::GatewayRequest &request, WorkflowResult &workflow)
+{
     workflow.route_result = gateway_.route(request);
     workflow.route_events = gateway_.replay_route_events(0);
     if (!workflow.route_result.accepted)
     {
         workflow.status = WorkflowStatus::kRouteRejected;
-        return workflow;
+        return std::nullopt;
     }
 
     const auto forwarded = gateway_.poll_forwarded_request();
@@ -206,10 +263,16 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
     {
         workflow.status = WorkflowStatus::kInvariantViolation;
         workflow.error_detail = "gateway_forwarded_request_missing";
-        return workflow;
+        return std::nullopt;
     }
 
-    const auto parsed = parse_order(*forwarded);
+    return forwarded;
+}
+
+std::optional<ExchangePipeline::ParsedOrder> ExchangePipeline::parse_forwarded_request(
+    const unified_access_gateway::ForwardedRequest &request, WorkflowResult &workflow) const
+{
+    const auto parsed = parse_order(request);
     if (!parsed.has_value())
     {
         workflow.status = WorkflowStatus::kParseRejected;
@@ -218,66 +281,83 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
             .reject_reason = pre_trade_risk_engine::RejectReason::kInvalidRequest,
             .rule_name = "request_parse",
             .order_id = "",
-            .user_id = forwarded->user_id,
+            .user_id = request.user_id,
             .symbol = symbol_,
             .reference_price = 0.0,
             .estimated_notional = 0.0,
-            .timestamp_ms = forwarded->timestamp_ms,
+            .timestamp_ms = request.timestamp_ms,
         };
-        return workflow;
+        return std::nullopt;
     }
 
-    workflow.risk_decision = risk_.evaluate(to_risk_request(*parsed));
+    return parsed;
+}
+
+bool ExchangePipeline::evaluate_risk_stage(const ParsedOrder &order, WorkflowResult &workflow)
+{
+    workflow.risk_decision = risk_.evaluate(to_risk_request(order));
     if (!workflow.risk_decision.accepted)
     {
         workflow.status = WorkflowStatus::kRiskRejected;
-        return workflow;
+        return false;
     }
 
-    const auto hold_id = hold_id_for(parsed->order_id);
-    const auto reserved = reserve_amount(*parsed);
-    const auto hold_result = parsed->matching_side == orderbook_matching_engine::Side::kBuy
-                                 ? clearing_.freeze_quote(parsed->user_id, hold_id, reserved, parsed->timestamp_ms)
-                                 : clearing_.freeze_base(parsed->user_id, hold_id, reserved, parsed->timestamp_ms);
+    return true;
+}
+
+std::optional<std::string> ExchangePipeline::reserve_order_hold(const ParsedOrder &order, WorkflowResult &workflow)
+{
+    const std::string hold_id = hold_id_for(order.order_id);
+    const double reserved = reserve_amount(order);
+    const auto hold_result = order.matching_side == orderbook_matching_engine::Side::kBuy
+                                 ? clearing_.freeze_quote(order.user_id, hold_id, reserved, order.timestamp_ms)
+                                 : clearing_.freeze_base(order.user_id, hold_id, reserved, order.timestamp_ms);
     if (!hold_result.ok())
     {
         workflow.status = WorkflowStatus::kClearingRejected;
         workflow.error_detail = std::string(account_clearing_system::status_message(hold_result.status));
         workflow.risk_decision.accepted = false;
-        workflow.risk_decision.reject_reason = to_risk_reject_reason(hold_result.status, parsed->matching_side);
+        workflow.risk_decision.reject_reason = to_risk_reject_reason(hold_result.status, order.matching_side);
         workflow.risk_decision.rule_name = "clearing_hold_reservation";
-        return workflow;
+        return std::nullopt;
     }
 
-    sync_account_state(parsed->user_id);
-    order_registry_[parsed->order_id] = ManagedOrder{
-        .user_id = parsed->user_id,
-        .symbol = parsed->symbol,
-        .side = parsed->matching_side,
-        .hold_id = hold_id,
+    return hold_id;
+}
+
+void ExchangePipeline::track_managed_order(const ParsedOrder &order, std::string hold_id)
+{
+    sync_account_state(order.user_id);
+    order_registry_[order.order_id] = ManagedOrder{
+        .user_id = order.user_id,
+        .symbol = order.symbol,
+        .side = order.matching_side,
+        .hold_id = std::move(hold_id),
     };
+}
 
-    workflow.match_result = matching_.submit(to_matching_request(*parsed));
-    workflow.accepted = workflow.match_result.accepted;
-
-    if (!workflow.match_result.accepted && workflow.match_result.trades.empty())
+bool ExchangePipeline::handle_rejected_match(const ParsedOrder &order, std::string_view hold_id,
+                                             WorkflowResult &workflow)
+{
+    workflow.status = WorkflowStatus::kMatchingRejected;
+    const auto release_result = release_residual_hold(hold_id, order.timestamp_ms + 1);
+    if (!release_result.ok())
     {
-        workflow.status = WorkflowStatus::kMatchingRejected;
-        const auto release_result = release_residual_hold(hold_id, parsed->timestamp_ms + 1);
-        if (!release_result.ok())
-        {
-            workflow.status = WorkflowStatus::kInvariantViolation;
-            workflow.error_detail = std::string(account_clearing_system::status_message(release_result.status));
-            return workflow;
-        }
-        order_registry_.erase(parsed->order_id);
-        sync_account_state(parsed->user_id);
-        sync_resting_orders();
-        workflow.trade_events = matching_.replay_market_data("trades." + symbol_, 0);
-        workflow.depth_events = matching_.replay_market_data("depth." + symbol_, 0);
-        return workflow;
+        workflow.status = WorkflowStatus::kInvariantViolation;
+        workflow.error_detail = std::string(account_clearing_system::status_message(release_result.status));
+        return false;
     }
 
+    order_registry_.erase(order.order_id);
+    sync_account_state(order.user_id);
+    sync_resting_orders();
+    workflow.trade_events = matching_.replay_market_data("trades." + symbol_, 0);
+    workflow.depth_events = matching_.replay_market_data("depth." + symbol_, 0);
+    return true;
+}
+
+bool ExchangePipeline::settle_trades(const ParsedOrder &order, WorkflowResult &workflow)
+{
     for (const auto &trade : workflow.match_result.trades)
     {
         const auto maker_it = order_registry_.find(trade.maker_order_id);
@@ -287,7 +367,7 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
             workflow.status = WorkflowStatus::kInvariantViolation;
             workflow.error_detail = "missing_order_ownership_for_matched_trade";
             workflow.accepted = false;
-            return workflow;
+            return false;
         }
 
         const auto &maker = maker_it->second;
@@ -309,7 +389,7 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
                 .price = trade.price,
                 .quantity = trade.quantity,
                 .buyer_is_taker = taker_is_buy,
-                .timestamp_ms = parsed->timestamp_ms,
+                .timestamp_ms = order.timestamp_ms,
             },
             fee_schedule_);
         workflow.settlements.push_back(settlement);
@@ -318,32 +398,35 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
             workflow.status = WorkflowStatus::kSettlementRejected;
             workflow.error_detail = std::string(account_clearing_system::status_message(settlement.status));
             workflow.accepted = false;
-            return workflow;
+            return false;
         }
+
         sync_account_state(buyer_account_id);
         sync_account_state(seller_account_id);
     }
 
+    return true;
+}
+
+bool ExchangePipeline::release_closed_orders(const ParsedOrder &order, WorkflowResult &workflow)
+{
     const auto resting = matching_.resting_orders();
     std::unordered_set<std::string> live_order_ids;
     live_order_ids.reserve(resting.size());
-    for (const auto &order : resting)
+    for (const auto &resting_order : resting)
     {
-        live_order_ids.insert(order.order_id);
+        live_order_ids.insert(resting_order.order_id);
     }
 
-    const std::vector<std::string> tracked_order_ids = [&]() {
-        std::vector<std::string> ids;
-        ids.reserve(order_registry_.size());
-        for (const auto &[order_id, managed] : order_registry_)
+    std::vector<std::string> tracked_order_ids;
+    tracked_order_ids.reserve(order_registry_.size());
+    for (const auto &[order_id, managed] : order_registry_)
+    {
+        if (managed.symbol == symbol_)
         {
-            if (managed.symbol == symbol_)
-            {
-                ids.push_back(order_id);
-            }
+            tracked_order_ids.push_back(order_id);
         }
-        return ids;
-    }();
+    }
 
     for (const auto &order_id : tracked_order_ids)
     {
@@ -352,14 +435,13 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
             const auto registry_it = order_registry_.find(order_id);
             if (registry_it != order_registry_.end())
             {
-                const auto release_result =
-                    release_residual_hold(registry_it->second.hold_id, parsed->timestamp_ms + 2);
+                const auto release_result = release_residual_hold(registry_it->second.hold_id, order.timestamp_ms + 2);
                 if (!release_result.ok())
                 {
                     workflow.status = WorkflowStatus::kInvariantViolation;
                     workflow.error_detail = std::string(account_clearing_system::status_message(release_result.status));
                     workflow.accepted = false;
-                    return workflow;
+                    return false;
                 }
                 sync_account_state(registry_it->second.user_id);
                 order_registry_.erase(registry_it);
@@ -367,13 +449,14 @@ WorkflowResult ExchangePipeline::submit(const unified_access_gateway::GatewayReq
         }
     }
 
-    sync_resting_orders();
-    refresh_market_reference();
-    workflow.status = WorkflowStatus::kCompleted;
+    return true;
+}
+
+void ExchangePipeline::populate_market_outputs(WorkflowResult &workflow) const
+{
     workflow.trade_events = matching_.replay_market_data("trades." + symbol_, 0);
     workflow.depth_events = matching_.replay_market_data("depth." + symbol_, 0);
     workflow.outbox_messages = clearing_.pending_outbox(32);
-    return workflow;
 }
 
 std::optional<account_clearing_system::AccountSnapshot> ExchangePipeline::account(std::string_view user_id) const

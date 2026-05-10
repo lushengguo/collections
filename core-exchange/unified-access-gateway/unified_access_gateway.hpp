@@ -158,6 +158,12 @@ class UnifiedAccessGateway
         bool live{true};
     };
 
+    [[nodiscard]] static bool has_valid_request_shape(const GatewayRequest &request) noexcept;
+    [[nodiscard]] bool has_valid_credentials(const GatewayRequest &request) const;
+    [[nodiscard]] bool backend_available(Backend backend) const;
+    [[nodiscard]] bool consume_rate_limit(std::string_view user_id, std::int64_t timestamp_ms);
+    [[nodiscard]] static ForwardedRequest make_forwarded_request(const GatewayRequest &request, Backend backend);
+    [[nodiscard]] RouteResult make_accepted_route_result(const RouteConfig &route) const;
     [[nodiscard]] static std::string route_event_payload(const ForwardedRequest &request, std::string_view route_name);
     [[nodiscard]] std::optional<RouteConfig> match_route(std::string_view path) const;
 

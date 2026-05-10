@@ -150,6 +150,13 @@ class OrderbookMatchingEngine
 
     [[nodiscard]] MatchResult handle_limit_order(const OrderRequest &request);
     [[nodiscard]] MatchResult handle_market_order(const OrderRequest &request);
+    [[nodiscard]] static MatchResult make_rejected_result(RejectReason reason, double remaining_quantity);
+    [[nodiscard]] static MatchResult make_accepted_result(double requested_quantity);
+    void match_request(const OrderRequest &request, double &remaining_quantity, MatchResult &result);
+    [[nodiscard]] MatchResult finalize_limit_result(const OrderRequest &request, double remaining_quantity,
+                                                    MatchResult result);
+    [[nodiscard]] MatchResult finalize_market_result(const OrderRequest &request, double remaining_quantity,
+                                                     MatchResult result);
     [[nodiscard]] bool can_fill_fully(const OrderRequest &request) const;
     [[nodiscard]] bool would_cross(const OrderRequest &request) const;
     [[nodiscard]] double best_bid() const;

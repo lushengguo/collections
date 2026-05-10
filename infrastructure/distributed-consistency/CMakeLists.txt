@@ -16,24 +16,29 @@ option(DISTRIBUTED_CONSISTENCY_WARNINGS_AS_ERRORS "Treat compiler warnings as er
 option(DISTRIBUTED_CONSISTENCY_ENABLE_CLANG_TIDY "Enable clang-tidy when available" ON)
 option(DISTRIBUTED_CONSISTENCY_ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU tuning in Release" ON)
 
-include(FetchContent)
 include(CheckIPOSupported)
 
-set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+if(PROJECT_IS_TOP_LEVEL)
+  include(FetchContent)
 
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
-)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 
-FetchContent_Declare(
-  googlebenchmark
-  URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
-)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
+  )
 
-FetchContent_MakeAvailable(googletest googlebenchmark)
+  FetchContent_Declare(
+    googlebenchmark
+    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.tar.gz
+  )
+
+  FetchContent_MakeAvailable(googletest googlebenchmark)
+elseif(NOT TARGET GTest::gtest_main OR NOT TARGET benchmark::benchmark)
+  message(FATAL_ERROR "distributed_consistency requires shared googletest and googlebenchmark targets when added to the workspace")
+endif()
 
 add_library(distributed_consistency_project_options INTERFACE)
 target_compile_features(distributed_consistency_project_options INTERFACE cxx_std_20)
@@ -115,7 +120,7 @@ gtest_discover_tests(distributed_consistency_tests)
 add_executable(distributed_consistency_benchmarks distributed_consistency_benchmark.cpp)
 target_link_libraries(distributed_consistency_benchmarks PRIVATE distributed_consistency_lib benchmark::benchmark)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
+if(PROJECT_IS_TOP_LEVEL AND CMAKE_BUILD_TYPE STREQUAL "Release")
   add_custom_target(
     run_benchmarks
     COMMAND distributed_consistency_benchmarks --benchmark_min_time=0.1s

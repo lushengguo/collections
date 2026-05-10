@@ -191,42 +191,31 @@ std::size_t OrderbookMatchingEngine::live_order_count() const
     return live_orders_.size();
 }
 
-MatchResult OrderbookMatchingEngine::handle_limit_order(const OrderRequest &request)
+MatchResult OrderbookMatchingEngine::make_rejected_result(RejectReason reason, double remaining_quantity)
 {
-    if (request.tif == TimeInForce::kGtx && would_cross(request))
-    {
-        emit_order_event(request.order_id, OrderStatus::kRejected, RejectReason::kWouldCrossPostOnly, request.quantity);
-        return MatchResult{
-            .accepted = false,
-            .final_status = OrderStatus::kRejected,
-            .reject_reason = RejectReason::kWouldCrossPostOnly,
-            .executed_quantity = 0.0,
-            .remaining_quantity = request.quantity,
-        };
-    }
+    return MatchResult{
+        .accepted = false,
+        .final_status = OrderStatus::kRejected,
+        .reject_reason = reason,
+        .executed_quantity = 0.0,
+        .remaining_quantity = remaining_quantity,
+    };
+}
 
-    if (request.tif == TimeInForce::kFok && !can_fill_fully(request))
-    {
-        emit_order_event(request.order_id, OrderStatus::kRejected, RejectReason::kInsufficientLiquidity,
-                         request.quantity);
-        return MatchResult{
-            .accepted = false,
-            .final_status = OrderStatus::kRejected,
-            .reject_reason = RejectReason::kInsufficientLiquidity,
-            .executed_quantity = 0.0,
-            .remaining_quantity = request.quantity,
-        };
-    }
-
-    MatchResult result{
+MatchResult OrderbookMatchingEngine::make_accepted_result(double requested_quantity)
+{
+    return MatchResult{
         .accepted = true,
         .final_status = OrderStatus::kAccepted,
         .reject_reason = RejectReason::kNone,
         .executed_quantity = 0.0,
-        .remaining_quantity = request.quantity,
+        .remaining_quantity = requested_quantity,
     };
+}
 
-    double remaining_quantity = request.quantity;
+void OrderbookMatchingEngine::match_request(const OrderRequest &request, double &remaining_quantity,
+                                            MatchResult &result)
+{
     if (request.side == Side::kBuy)
     {
         match_against_asks(request, remaining_quantity, result);
@@ -235,7 +224,11 @@ MatchResult OrderbookMatchingEngine::handle_limit_order(const OrderRequest &requ
     {
         match_against_bids(request, remaining_quantity, result);
     }
+}
 
+MatchResult OrderbookMatchingEngine::finalize_limit_result(const OrderRequest &request, double remaining_quantity,
+                                                           MatchResult result)
+{
     result.executed_quantity = request.quantity - remaining_quantity;
     result.remaining_quantity = remaining_quantity;
 
@@ -259,39 +252,9 @@ MatchResult OrderbookMatchingEngine::handle_limit_order(const OrderRequest &requ
     return result;
 }
 
-MatchResult OrderbookMatchingEngine::handle_market_order(const OrderRequest &request)
+MatchResult OrderbookMatchingEngine::finalize_market_result(const OrderRequest &request, double remaining_quantity,
+                                                            MatchResult result)
 {
-    if (request.tif == TimeInForce::kFok && !can_fill_fully(request))
-    {
-        emit_order_event(request.order_id, OrderStatus::kRejected, RejectReason::kInsufficientLiquidity,
-                         request.quantity);
-        return MatchResult{
-            .accepted = false,
-            .final_status = OrderStatus::kRejected,
-            .reject_reason = RejectReason::kInsufficientLiquidity,
-            .executed_quantity = 0.0,
-            .remaining_quantity = request.quantity,
-        };
-    }
-
-    MatchResult result{
-        .accepted = true,
-        .final_status = OrderStatus::kAccepted,
-        .reject_reason = RejectReason::kNone,
-        .executed_quantity = 0.0,
-        .remaining_quantity = request.quantity,
-    };
-
-    double remaining_quantity = request.quantity;
-    if (request.side == Side::kBuy)
-    {
-        match_against_asks(request, remaining_quantity, result);
-    }
-    else
-    {
-        match_against_bids(request, remaining_quantity, result);
-    }
-
     result.executed_quantity = request.quantity - remaining_quantity;
     result.remaining_quantity = remaining_quantity;
 
@@ -314,6 +277,44 @@ MatchResult OrderbookMatchingEngine::handle_market_order(const OrderRequest &req
     result.final_status = OrderStatus::kRejected;
     result.reject_reason = RejectReason::kMarketOrderWouldRest;
     return result;
+}
+
+MatchResult OrderbookMatchingEngine::handle_limit_order(const OrderRequest &request)
+{
+    if (request.tif == TimeInForce::kGtx && would_cross(request))
+    {
+        emit_order_event(request.order_id, OrderStatus::kRejected, RejectReason::kWouldCrossPostOnly, request.quantity);
+        return make_rejected_result(RejectReason::kWouldCrossPostOnly, request.quantity);
+    }
+
+    if (request.tif == TimeInForce::kFok && !can_fill_fully(request))
+    {
+        emit_order_event(request.order_id, OrderStatus::kRejected, RejectReason::kInsufficientLiquidity,
+                         request.quantity);
+        return make_rejected_result(RejectReason::kInsufficientLiquidity, request.quantity);
+    }
+
+    MatchResult result = make_accepted_result(request.quantity);
+
+    double remaining_quantity = request.quantity;
+    match_request(request, remaining_quantity, result);
+    return finalize_limit_result(request, remaining_quantity, std::move(result));
+}
+
+MatchResult OrderbookMatchingEngine::handle_market_order(const OrderRequest &request)
+{
+    if (request.tif == TimeInForce::kFok && !can_fill_fully(request))
+    {
+        emit_order_event(request.order_id, OrderStatus::kRejected, RejectReason::kInsufficientLiquidity,
+                         request.quantity);
+        return make_rejected_result(RejectReason::kInsufficientLiquidity, request.quantity);
+    }
+
+    MatchResult result = make_accepted_result(request.quantity);
+
+    double remaining_quantity = request.quantity;
+    match_request(request, remaining_quantity, result);
+    return finalize_market_result(request, remaining_quantity, std::move(result));
 }
 
 bool OrderbookMatchingEngine::can_fill_fully(const OrderRequest &request) const

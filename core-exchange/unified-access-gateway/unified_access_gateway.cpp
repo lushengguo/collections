@@ -78,17 +78,79 @@ std::size_t UnifiedAccessGateway::close_stale_sessions(std::int64_t now_ms)
     return closed;
 }
 
+bool UnifiedAccessGateway::has_valid_request_shape(const GatewayRequest &request) noexcept
+{
+    return !request.request_id.empty() && !request.user_id.empty() && !request.api_key.empty() &&
+           !request.path.empty() && request.timestamp_ms > 0;
+}
+
+bool UnifiedAccessGateway::has_valid_credentials(const GatewayRequest &request) const
+{
+    const auto credential_it = credentials_.find(request.api_key);
+    return credential_it != credentials_.end() && credential_it->second.user_id == request.user_id &&
+           request.signature == expected_signature(request.api_key, credential_it->second.secret, request.request_id);
+}
+
+bool UnifiedAccessGateway::backend_available(Backend backend) const
+{
+    const auto backend_health_it = backend_health_.find(backend);
+    return backend_health_it == backend_health_.end() || backend_health_it->second;
+}
+
+bool UnifiedAccessGateway::consume_rate_limit(std::string_view user_id, std::int64_t timestamp_ms)
+{
+    const auto limit_it = user_limits_.find(std::string(user_id));
+    if (limit_it == user_limits_.end())
+    {
+        return true;
+    }
+
+    auto &window = user_windows_[std::string(user_id)];
+    window.erase(
+        std::remove_if(window.begin(), window.end(),
+                       [&](const auto timestamp) { return timestamp < timestamp_ms - limit_it->second.window_ms; }),
+        window.end());
+    if (window.size() >= limit_it->second.max_requests)
+    {
+        return false;
+    }
+
+    window.push_back(timestamp_ms);
+    return true;
+}
+
+ForwardedRequest UnifiedAccessGateway::make_forwarded_request(const GatewayRequest &request, Backend backend)
+{
+    return ForwardedRequest{
+        .request_id = request.request_id,
+        .user_id = request.user_id,
+        .path = request.path,
+        .payload = request.payload,
+        .backend = backend,
+        .protocol = request.protocol,
+        .timestamp_ms = request.timestamp_ms,
+    };
+}
+
+RouteResult UnifiedAccessGateway::make_accepted_route_result(const RouteConfig &route) const
+{
+    return RouteResult{
+        .accepted = true,
+        .reject_reason = RejectReason::kNone,
+        .backend = route.backend,
+        .route_name = route.route_name,
+        .queued_requests = ingress_queue_.size_approx(),
+    };
+}
+
 RouteResult UnifiedAccessGateway::route(const GatewayRequest &request)
 {
-    if (request.request_id.empty() || request.user_id.empty() || request.api_key.empty() || request.path.empty() ||
-        request.timestamp_ms <= 0)
+    if (!has_valid_request_shape(request))
     {
         return RouteResult{.accepted = false, .reject_reason = RejectReason::kInvalidRequest};
     }
 
-    const auto credential_it = credentials_.find(request.api_key);
-    if (credential_it == credentials_.end() || credential_it->second.user_id != request.user_id ||
-        request.signature != expected_signature(request.api_key, credential_it->second.secret, request.request_id))
+    if (!has_valid_credentials(request))
     {
         return RouteResult{.accepted = false, .reject_reason = RejectReason::kAuthenticationFailed};
     }
@@ -99,38 +161,17 @@ RouteResult UnifiedAccessGateway::route(const GatewayRequest &request)
         return RouteResult{.accepted = false, .reject_reason = RejectReason::kUnknownRoute};
     }
 
-    const auto backend_health_it = backend_health_.find(route->backend);
-    if (backend_health_it != backend_health_.end() && !backend_health_it->second)
+    if (!backend_available(route->backend))
     {
         return RouteResult{.accepted = false, .reject_reason = RejectReason::kCircuitOpen, .backend = route->backend};
     }
 
-    const auto limit_it = user_limits_.find(request.user_id);
-    if (limit_it != user_limits_.end())
+    if (!consume_rate_limit(request.user_id, request.timestamp_ms))
     {
-        auto &window = user_windows_[request.user_id];
-        window.erase(std::remove_if(window.begin(), window.end(),
-                                    [&](const auto timestamp) {
-                                        return timestamp < request.timestamp_ms - limit_it->second.window_ms;
-                                    }),
-                     window.end());
-        if (window.size() >= limit_it->second.max_requests)
-        {
-            return RouteResult{
-                .accepted = false, .reject_reason = RejectReason::kRateLimited, .backend = route->backend};
-        }
-        window.push_back(request.timestamp_ms);
+        return RouteResult{.accepted = false, .reject_reason = RejectReason::kRateLimited, .backend = route->backend};
     }
 
-    ForwardedRequest forwarded{
-        .request_id = request.request_id,
-        .user_id = request.user_id,
-        .path = request.path,
-        .payload = request.payload,
-        .backend = route->backend,
-        .protocol = request.protocol,
-        .timestamp_ms = request.timestamp_ms,
-    };
+    const ForwardedRequest forwarded = make_forwarded_request(request, route->backend);
     if (!ingress_queue_.push(forwarded))
     {
         return RouteResult{.accepted = false, .reject_reason = RejectReason::kQueueFull, .backend = route->backend};
@@ -138,13 +179,7 @@ RouteResult UnifiedAccessGateway::route(const GatewayRequest &request)
 
     const auto message = broadcaster_.publish("gateway.routes", route_event_payload(forwarded, route->route_name));
     (void)message;
-    return RouteResult{
-        .accepted = true,
-        .reject_reason = RejectReason::kNone,
-        .backend = route->backend,
-        .route_name = route->route_name,
-        .queued_requests = ingress_queue_.size_approx(),
-    };
+    return make_accepted_route_result(*route);
 }
 
 std::optional<ForwardedRequest> UnifiedAccessGateway::poll_forwarded_request()

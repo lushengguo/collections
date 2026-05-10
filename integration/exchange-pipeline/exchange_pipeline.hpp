@@ -122,6 +122,18 @@ class ExchangePipeline
     };
 
     [[nodiscard]] std::optional<ParsedOrder> parse_order(const unified_access_gateway::ForwardedRequest &request) const;
+    [[nodiscard]] std::optional<unified_access_gateway::ForwardedRequest> route_request(
+        const unified_access_gateway::GatewayRequest &request, WorkflowResult &workflow);
+    [[nodiscard]] std::optional<ParsedOrder> parse_forwarded_request(
+        const unified_access_gateway::ForwardedRequest &request, WorkflowResult &workflow) const;
+    [[nodiscard]] bool evaluate_risk_stage(const ParsedOrder &order, WorkflowResult &workflow);
+    [[nodiscard]] std::optional<std::string> reserve_order_hold(const ParsedOrder &order, WorkflowResult &workflow);
+    void track_managed_order(const ParsedOrder &order, std::string hold_id);
+    [[nodiscard]] bool handle_rejected_match(const ParsedOrder &order, std::string_view hold_id,
+                                             WorkflowResult &workflow);
+    [[nodiscard]] bool settle_trades(const ParsedOrder &order, WorkflowResult &workflow);
+    [[nodiscard]] bool release_closed_orders(const ParsedOrder &order, WorkflowResult &workflow);
+    void populate_market_outputs(WorkflowResult &workflow) const;
     [[nodiscard]] double reserve_amount(const ParsedOrder &order) const;
     [[nodiscard]] static std::string hold_id_for(std::string_view order_id);
     [[nodiscard]] orderbook_matching_engine::OrderRequest to_matching_request(const ParsedOrder &order) const;

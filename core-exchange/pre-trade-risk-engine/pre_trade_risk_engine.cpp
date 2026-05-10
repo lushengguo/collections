@@ -11,6 +11,8 @@ namespace pre_trade_risk_engine
 namespace
 {
 
+const std::vector<RestingOrderView> kEmptyRestingOrders;
+
 constexpr market_data_push_system::Side bid_side() noexcept
 {
     return market_data_push_system::Side::kBid;
@@ -101,41 +103,17 @@ void PreTradeRiskEngine::clear_user_resting_orders(std::string_view symbol, std:
 
 RiskDecision PreTradeRiskEngine::evaluate(const OrderRequest &request)
 {
-    const auto make_decision = [&](bool accepted, RejectReason reject_reason, std::string_view rule_name) {
-        const auto market_it = markets_.find(request.symbol);
-        const auto ref_price = market_it == markets_.end() ? 0.0 : reference_price(market_it->second, request);
-        const auto notional = ref_price * request.quantity;
-        return RiskDecision{
-            .accepted = accepted,
-            .reject_reason = reject_reason,
-            .rule_name = std::string(rule_name),
-            .order_id = request.order_id,
-            .user_id = request.user_id,
-            .symbol = request.symbol,
-            .reference_price = ref_price,
-            .estimated_notional = notional,
-            .timestamp_ms = request.timestamp_ms,
-        };
-    };
-
-    if (request.order_id.empty() || request.user_id.empty() || request.symbol.empty() || request.quantity <= 0.0 ||
-        request.timestamp_ms <= 0 || request.source_ip.empty())
+    if (const auto invalid_request = validate_request_shape(request); invalid_request.has_value())
     {
-        auto decision = make_decision(false, RejectReason::kInvalidRequest, "request_shape");
-        enqueue_audit(decision);
-        flush_audit_queue();
-        return decision;
+        return finalize_decision(*invalid_request);
+    }
+
+    if (const auto missing_market = validate_market_presence(request); missing_market.has_value())
+    {
+        return finalize_decision(*missing_market);
     }
 
     const auto market_it = markets_.find(request.symbol);
-    if (market_it == markets_.end())
-    {
-        auto decision = make_decision(false, RejectReason::kUnknownSymbol, "symbol_configured");
-        enqueue_audit(decision);
-        flush_audit_queue();
-        return decision;
-    }
-
     const auto &market = market_it->second;
     const auto ref_price = reference_price(market, request);
     const auto notional = ref_price * request.quantity;
@@ -144,63 +122,12 @@ RiskDecision PreTradeRiskEngine::evaluate(const OrderRequest &request)
     const auto &account = account_it == accounts_.end() ? empty_account : account_it->second;
 
     auto &request_window = request_windows_[request.user_id + "|" + request.source_ip];
-    request_window.erase(std::remove_if(request_window.begin(), request_window.end(),
-                                        [&](const auto window_timestamp) {
-                                            return window_timestamp <
-                                                   request.timestamp_ms - market.config.rate_limit_window_ms;
-                                        }),
-                         request_window.end());
+    trim_request_window(market.config, request_window, request.timestamp_ms);
 
-    RiskDecision decision;
-    if (request.quantity > market.config.max_order_quantity)
-    {
-        decision = make_decision(false, RejectReason::kQuantityLimitExceeded, "quantity_limit");
-    }
-    else if (notional > market.config.max_order_notional)
-    {
-        decision = make_decision(false, RejectReason::kNotionalLimitExceeded, "notional_limit");
-    }
-    else if (request.type == OrderType::kLimit && ref_price > 0.0 &&
-             std::abs(request.price - ref_price) / ref_price > market.config.max_price_deviation_ratio)
-    {
-        decision = make_decision(false, RejectReason::kPriceBandExceeded, "price_band");
-    }
-    else if (request.side == Side::kBuy && account.quote_balance < notional)
-    {
-        decision = make_decision(false, RejectReason::kInsufficientBalance, "available_quote_balance");
-    }
-    else if (request.side == Side::kSell && account.base_position < request.quantity)
-    {
-        decision = make_decision(false, RejectReason::kInsufficientPosition, "available_base_position");
-    }
-    else if (request_window.size() >= market.config.max_requests_per_window)
-    {
-        decision = make_decision(false, RejectReason::kRateLimited, "user_ip_rate_limit");
-    }
-    else if (market.config.enable_self_trade_prevention)
-    {
-        static const std::vector<RestingOrderView> kEmptyRestingOrders;
-        const auto resting_orders_it = resting_orders_.find(request.symbol);
-        const auto &resting_orders =
-            resting_orders_it == resting_orders_.end() ? kEmptyRestingOrders : resting_orders_it->second;
-        if (would_self_trade(request, resting_orders))
-        {
-            decision = make_decision(false, RejectReason::kSelfTradePrevented, "self_trade_prevention");
-        }
-        else
-        {
-            decision = make_decision(true, RejectReason::kNone, "accepted");
-        }
-    }
-    else
-    {
-        decision = make_decision(true, RejectReason::kNone, "accepted");
-    }
+    RiskDecision decision = evaluate_market_rules(request, market, account, ref_price, notional, request_window);
 
     request_window.push_back(request.timestamp_ms);
-    enqueue_audit(decision);
-    flush_audit_queue();
-    return decision;
+    return finalize_decision(std::move(decision));
 }
 
 std::vector<RiskDecision> PreTradeRiskEngine::audit_log() const
@@ -216,6 +143,107 @@ std::size_t PreTradeRiskEngine::pending_audit_events() const noexcept
 std::string PreTradeRiskEngine::account_key(std::string_view user_id, std::string_view symbol)
 {
     return std::string(user_id) + "|" + std::string(symbol);
+}
+
+RiskDecision PreTradeRiskEngine::make_decision(const OrderRequest &request, bool accepted, RejectReason reject_reason,
+                                               std::string_view rule_name) const
+{
+    const auto market_it = markets_.find(request.symbol);
+    const auto ref_price = market_it == markets_.end() ? 0.0 : reference_price(market_it->second, request);
+    const auto notional = ref_price * request.quantity;
+    return RiskDecision{
+        .accepted = accepted,
+        .reject_reason = reject_reason,
+        .rule_name = std::string(rule_name),
+        .order_id = request.order_id,
+        .user_id = request.user_id,
+        .symbol = request.symbol,
+        .reference_price = ref_price,
+        .estimated_notional = notional,
+        .timestamp_ms = request.timestamp_ms,
+    };
+}
+
+std::optional<RiskDecision> PreTradeRiskEngine::validate_request_shape(const OrderRequest &request) const
+{
+    if (request.order_id.empty() || request.user_id.empty() || request.symbol.empty() || request.quantity <= 0.0 ||
+        request.timestamp_ms <= 0 || request.source_ip.empty())
+    {
+        return make_decision(request, false, RejectReason::kInvalidRequest, "request_shape");
+    }
+
+    return std::nullopt;
+}
+
+std::optional<RiskDecision> PreTradeRiskEngine::validate_market_presence(const OrderRequest &request) const
+{
+    if (!markets_.contains(request.symbol))
+    {
+        return make_decision(request, false, RejectReason::kUnknownSymbol, "symbol_configured");
+    }
+
+    return std::nullopt;
+}
+
+void PreTradeRiskEngine::trim_request_window(const MarketRiskConfig &config, std::vector<std::int64_t> &request_window,
+                                             std::int64_t timestamp_ms)
+{
+    request_window.erase(std::remove_if(request_window.begin(), request_window.end(),
+                                        [&](const auto window_timestamp) {
+                                            return window_timestamp < timestamp_ms - config.rate_limit_window_ms;
+                                        }),
+                         request_window.end());
+}
+
+const std::vector<RestingOrderView> &PreTradeRiskEngine::resting_orders_for(std::string_view symbol) const
+{
+    const auto resting_orders_it = resting_orders_.find(std::string(symbol));
+    return resting_orders_it == resting_orders_.end() ? kEmptyRestingOrders : resting_orders_it->second;
+}
+
+RiskDecision PreTradeRiskEngine::evaluate_market_rules(const OrderRequest &request, const MarketState &market,
+                                                       const AccountRiskState &account, double ref_price,
+                                                       double notional,
+                                                       const std::vector<std::int64_t> &request_window) const
+{
+    if (request.quantity > market.config.max_order_quantity)
+    {
+        return make_decision(request, false, RejectReason::kQuantityLimitExceeded, "quantity_limit");
+    }
+    if (notional > market.config.max_order_notional)
+    {
+        return make_decision(request, false, RejectReason::kNotionalLimitExceeded, "notional_limit");
+    }
+    if (request.type == OrderType::kLimit && ref_price > 0.0 &&
+        std::abs(request.price - ref_price) / ref_price > market.config.max_price_deviation_ratio)
+    {
+        return make_decision(request, false, RejectReason::kPriceBandExceeded, "price_band");
+    }
+    if (request.side == Side::kBuy && account.quote_balance < notional)
+    {
+        return make_decision(request, false, RejectReason::kInsufficientBalance, "available_quote_balance");
+    }
+    if (request.side == Side::kSell && account.base_position < request.quantity)
+    {
+        return make_decision(request, false, RejectReason::kInsufficientPosition, "available_base_position");
+    }
+    if (request_window.size() >= market.config.max_requests_per_window)
+    {
+        return make_decision(request, false, RejectReason::kRateLimited, "user_ip_rate_limit");
+    }
+    if (market.config.enable_self_trade_prevention && would_self_trade(request, resting_orders_for(request.symbol)))
+    {
+        return make_decision(request, false, RejectReason::kSelfTradePrevented, "self_trade_prevention");
+    }
+
+    return make_decision(request, true, RejectReason::kNone, "accepted");
+}
+
+RiskDecision PreTradeRiskEngine::finalize_decision(RiskDecision decision)
+{
+    enqueue_audit(decision);
+    flush_audit_queue();
+    return decision;
 }
 
 double PreTradeRiskEngine::reference_price(const MarketState &market, const OrderRequest &request) const

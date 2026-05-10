@@ -162,6 +162,17 @@ class PreTradeRiskEngine
     };
 
     [[nodiscard]] static std::string account_key(std::string_view user_id, std::string_view symbol);
+    [[nodiscard]] RiskDecision make_decision(const OrderRequest &request, bool accepted, RejectReason reject_reason,
+                                             std::string_view rule_name) const;
+    [[nodiscard]] std::optional<RiskDecision> validate_request_shape(const OrderRequest &request) const;
+    [[nodiscard]] std::optional<RiskDecision> validate_market_presence(const OrderRequest &request) const;
+    void trim_request_window(const MarketRiskConfig &config, std::vector<std::int64_t> &request_window,
+                             std::int64_t timestamp_ms);
+    [[nodiscard]] const std::vector<RestingOrderView> &resting_orders_for(std::string_view symbol) const;
+    [[nodiscard]] RiskDecision evaluate_market_rules(const OrderRequest &request, const MarketState &market,
+                                                     const AccountRiskState &account, double ref_price, double notional,
+                                                     const std::vector<std::int64_t> &request_window) const;
+    RiskDecision finalize_decision(RiskDecision decision);
     [[nodiscard]] double reference_price(const MarketState &market, const OrderRequest &request) const;
     [[nodiscard]] bool would_self_trade(const OrderRequest &request,
                                         const std::vector<RestingOrderView> &resting_orders) const;
